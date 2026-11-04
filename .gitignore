@@ -1,0 +1,21 @@
+# Your collection and anything generated from it (contains your cards and PriceCharting
+# prices, which are licensed for personal use). Never commit these.
+*.csv
+!data/sample-collection.csv
+data/cards.json
+binder-data.js
+data/picks.json
+picks.json
+
+# API cache (recreated by scripts/build.py; pc_*.json are lookups for your own products)
+data/cache/
+
+# Screenshots of your binder
+*-preview.png
+
+# OS / editor
+.DS_Store
+__pycache__/
+*.pyc
+.vscode/
+.idea/

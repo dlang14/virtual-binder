@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Virtual Binder</title>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="cover">
+  <div class="cover-inner">
+    <div class="title-block">
+      <h1>Virtual Binder</h1>
+      <p class="subtitle" id="subtitle"></p>
+    </div>
+    <div class="stats" id="stats"></div>
+  </div>
+</header>
+
+<nav class="controls">
+  <div class="ctl seg tabs" role="tablist" aria-label="View">
+    <button data-tab="sets" class="on" role="tab">Set binder</button>
+    <button data-tab="dex" role="tab">Pokédex</button>
+  </div>
+  <label class="ctl sets-only">
+    <span>Set</span>
+    <select id="setSelect"></select>
+  </label>
+  <div class="ctl seg sort sets-only" role="group" aria-label="Sort">
+    <span>Sort</span>
+    <button data-sort="set" class="on">Set order</button>
+    <button data-sort="value">Value</button>
+  </div>
+  <label class="ctl grow sets-only">
+    <span>Search</span>
+    <input id="search" type="search" placeholder="Name, number, set, variant…" autocomplete="off">
+  </label>
+  <label class="ctl check sets-only">
+    <input id="missingAll" type="checkbox">
+    <span>Show missing cards</span>
+  </label>
+</nav>
+
+<main id="binder"></main>
+<main id="dexView" hidden></main>
+
+<section id="unmatched" class="unmatched"></section>
+
+<footer class="foot" id="foot"></footer>
+
+<div id="zoom" class="zoom" hidden>
+  <div class="zoom-card">
+    <img id="zoomImg" alt="">
+    <div id="zoomInfo" class="zoom-info"></div>
+  </div>
+</div>
+
+<script src="binder-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

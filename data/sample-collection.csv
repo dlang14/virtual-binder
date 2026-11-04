@@ -1,0 +1,10 @@
+id,product-name,console-name,price-in-pennies,include-string,condition-string,condition-id,sku,notes,cost-basis-in-pennies,quantity,date-entered,date-purchased,grading-company,grading-cert-id,folder
+sample-1,Charizard #4,Pokemon Base Set,50000,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-2,Blastoise #2,Pokemon Base Set,15000,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-3,Pikachu #58,Pokemon Base Set,1200,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price (2 copies; price is the row total),0,2,2025-01-01,,,,Example
+sample-4,Bulbasaur #1,Pokemon Scarlet & Violet 151,50,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-5,Charmander [Reverse Holo] #4,Pokemon Scarlet & Violet 151,150,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-6,Squirtle #7,Pokemon Scarlet & Violet 151,50,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-7,Mew ex #151,Pokemon Scarlet & Violet 151,300,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,200,1,2025-01-01,2025-01-01,,,Example
+sample-8,Umbreon VMAX #95,Pokemon Evolving Skies,1500,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
+sample-9,Switch #206,Pokemon Scarlet & Violet 151,25,Ungraded,Normal wear,1,,EXAMPLE DATA - made-up row and price,0,1,2025-01-01,,,,Example
