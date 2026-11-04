@@ -2,7 +2,7 @@
 """Virtual Binder: build binder data from a PriceCharting collection export.
 
 Usage:
-    python3 scripts/build.py [path/to/export.csv]
+    python3 scripts/build.py [path/to/export.csv] [options]   (see --help)
 
 Reads data/collection.csv by default, matches each card against the
 Pokemon TCG API (api.pokemontcg.io) with TCGdex (api.tcgdex.net) as the
@@ -12,7 +12,7 @@ fallback, and writes:
 API responses are cached in data/cache/ (delete it to force a refresh).
 No API key or secret is needed. Prices come only from the CSV.
 """
-import csv, json, os, re, subprocess, sys, time, unicodedata, urllib.request, urllib.parse
+import argparse, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.request, urllib.parse
 from difflib import SequenceMatcher
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -136,9 +136,10 @@ def build_species_matcher(species):
 
 UA = {"User-Agent": "virtual-binder/1.0 (personal collection viewer)"}
 
-def get_json(url, cache_name):
+def get_json(url, cache_name, max_age=None):
+    """GET a JSON URL, cached in data/cache/<cache_name>. max_age (seconds) refetches older cache files."""
     path = os.path.join(CACHE, cache_name)
-    if os.path.exists(path):
+    if os.path.exists(path) and (max_age is None or time.time() - os.path.getmtime(path) < max_age):
         with open(path) as f:
             return json.load(f)
     last = None
@@ -270,6 +271,23 @@ def dex_set(set_id, lang="en"):
     out.sort(key=lambda c: num_key(c["number"]))
     return out
 
+def dex_card(card_id, lang="en", max_age=None):
+    """One TCGdex card with full details (types, category, pricing). Cached in data/cache/dexcard_<lang>_<id>.json."""
+    return get_json(f"https://api.tcgdex.net/v2/{lang}/cards/{urllib.parse.quote(card_id)}",
+                    f"dexcard_{lang}_{card_id.replace('/', '_')}.json", max_age)
+
+def dex_twin(e, pool):
+    """TCGdex card id for a matched row: the match itself, or the TCGdex card in the same set slot."""
+    m = e.get("match")
+    if not m:
+        return None
+    if m["source"] == "TCGdex":
+        return m["id"]
+    for c in pool.get("dex") or []:
+        if slot_key(c["number"], c["name"]) == e.get("slot"):
+            return c["id"]
+    return None
+
 def num_key(n):
     m = re.match(r"^([A-Za-z]*)(\d+)(.*)$", str(n))
     if not m:
@@ -305,8 +323,28 @@ def name_score(a, b):
         return 1.0
     return SequenceMatcher(None, a, b).ratio()
 
+def parse_args():
+    ap = argparse.ArgumentParser(description="Build binder-data.js from a PriceCharting collection export.")
+    ap.add_argument("csv", nargs="?", default=os.path.join(ROOT, "data", "collection.csv"),
+                    help="PriceCharting export CSV (default: data/collection.csv)")
+    ap.add_argument("--no-types", action="store_true",
+                    help="skip the per-card TCGdex lookups that add Pokemon types (used by My Binders filters)")
+    return ap.parse_args()
+
+def read_json_file(path, label):
+    """Optional hand-made JSON file next to the CSV; None if missing or invalid."""
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path) as f:
+            return json.load(f)
+    except (ValueError, OSError) as err:
+        print(f"  ! ignoring {label}: {err}", file=sys.stderr)
+        return None
+
 def main():
-    csv_path = sys.argv[1] if len(sys.argv) > 1 else os.path.join(ROOT, "data", "collection.csv")
+    args = parse_args()
+    csv_path = args.csv
     if not os.path.exists(csv_path):
         sys.exit(f"CSV not found: {csv_path}\n"
                  "Export your collection from PriceCharting and save it as data/collection.csv, or pass a path:\n"
@@ -508,6 +546,27 @@ def main():
         except (ValueError, OSError) as err:
             print(f"  ! ignoring data/picks.json: {err}", file=sys.stderr)
 
+    # Types / card category from TCGdex (one cached request per distinct English card; types never change).
+    # Used by the My Binders tray filter and the "type" quick-fill rule.
+    if not args.no_types:
+        typed = 0
+        for e in entries:
+            pool = pools.get(e["console"], {})
+            lang = pool.get("cfg", {}).get("lang", "en")
+            cid = dex_twin(e, pool) if lang == "en" else None
+            e["dexId"] = cid
+            d = dex_card(cid) if cid else None
+            e["types"] = (d or {}).get("types") or []
+            e["category"] = (d or {}).get("category")
+            typed += bool(e["types"])
+        print(f"types: {typed}/{len(entries)} rows have a Pokemon type from TCGdex", file=sys.stderr)
+
+    # Optional data/binders.json (from My Binders "Export binders") becomes the default custom binders.
+    raw_binders = read_json_file(os.path.join(ROOT, "data", "binders.json"), "data/binders.json")
+    default_binders = raw_binders.get("binders", []) if isinstance(raw_binders, dict) else (raw_binders if isinstance(raw_binders, list) else [])
+    if default_binders:
+        print(f"binders.json: {len(default_binders)} default custom binders", file=sys.stderr)
+
     total_val = sum(e["valueCents"] for e in entries)
     out = {
         "generated": time.strftime("%Y-%m-%d %H:%M %Z"),
@@ -515,7 +574,8 @@ def main():
         "totals": {"rows": len(rows), "cards": sum(e["qty"] for e in entries), "valueCents": total_val,
                    "matched": len(rows) - len(unmatched), "unmatched": len(unmatched)},
         "sets": sets, "entries": entries, "dex": dex, "regions": REGIONS,
-        "defaultPicks": default_picks,
+        "defaultPicks": default_picks, "defaultBinders": default_binders,
+        "hasTypes": any(e.get("types") for e in entries),
     }
     with open(os.path.join(ROOT, "data", "cards.json"), "w") as f:
         json.dump(out, f, indent=1)
