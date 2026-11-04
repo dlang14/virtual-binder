@@ -1,7 +1,7 @@
 :root{
   --leather:#1f2430; --leather-2:#151922; --page:#2a303c; --page-2:#252b36; --page-edge:#3a4150; --hole:#0e1117;
   --sleeve:rgba(255,255,255,.06); --sleeve-edge:rgba(255,255,255,.14);
-  --ink:#eef1f6; --ink-2:#aab3c2; --ink-3:#7c8596; --accent:#f2c94c; --good:#6fcf97; --warn:#f2994a;
+  --ink:#eef1f6; --ink-2:#b6bfcd; --ink-3:#a3acba; --accent:#f2c94c; --good:#6fcf97; --warn:#f2994a;
   --accent-rgb:242,201,76; --accent-hi:#ffd866; --accent-lo:#d4a72c; --on-accent:#1b1b1b; --bad:#eb5757; --note:#f3b562;
   --fg-rgb:255,255,255; --cap-rgb:8,10,14; --bar:rgba(21,25,34,.88);
   --panel:#151922; --field:#10131a; --field-edge:#39404e; --field-on:#2f3747; --field-hover:#5a6375; --well:#0c0e13;

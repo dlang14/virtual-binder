@@ -8,19 +8,11 @@
       ["auto", "Auto (system light/dark)"],
       ["classic", "Classic binder"],
       ["dark", "Dark mode"],
-      ["pokedex", "Pokédex red"],
       ["holo", "Holo foil shimmer"],
-      ["gameboy", "Retro Game Boy"],
       ["galaxy", "Night Sky / Galaxy"],
       ["trainer", "Trainer Card poster"],
       ["contrast", "High contrast"],
-    ]],
-    ["Pokémon types", [
-      ["type-fire", "Fire"], ["type-water", "Water"], ["type-grass", "Grass"],
-      ["type-electric", "Electric"], ["type-psychic", "Psychic"], ["type-ice", "Ice"],
-      ["type-dragon", "Dragon"], ["type-ghost", "Ghost"], ["type-dark", "Dark"],
-      ["type-fighting", "Fighting"],
-    ]],
+    ]]
   ];
   var KEY = "vb-theme";
   var ids = {};

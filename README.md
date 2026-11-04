@@ -110,13 +110,10 @@ Pick a look from the **Theme** menu at the top right of every tab. Your choice i
 - **Auto**: follows your system's light or dark setting (Classic binder or Dark mode).
 - **Classic binder**: brown leather cover with cream pages.
 - **Dark mode**: near-black and neutral gray.
-- **Pokédex red**: red Pokédex shell with lens lights and yellow highlights.
 - **Holo foil shimmer**: a slow rainbow sheen over your cards. It stays still if your system has reduced motion turned on.
-- **Retro Game Boy**: the original four-shade green screen, with a monospace font (or Press Start 2P if you have it installed).
 - **Night Sky / Galaxy**: starfield with purple and blue nebula.
 - **Trainer Card poster**: bright white, blue and yellow.
 - **High contrast**: black, white and yellow for maximum legibility.
-- **Type themes**: Fire, Water, Grass, Electric, Psychic, Ice, Dragon, Ghost, Dark and Fighting.
 
 ## Saved picks
 
