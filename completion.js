@@ -7,7 +7,7 @@
   var VB = window.VB; if (!VB) return;
   var D = VB.D, $ = VB.$, esc = VB.esc, money = VB.money;
   var SETS = D.dexSets || [], OWNED = D.ownedDex || {}, PRE = D.completion || {};
-  var SKEY = "virtualBinder.completionSet.v1", CKEY = "virtualBinder.setCache.v1.", TTL = 3 * 86400e3, API = "https://api.tcgdex.net/v2/en/";
+  var SKEY = "virtualBinder.completionSet.v1", CKEY = "virtualBinder.setCache.v2.", OLDCKEY = "virtualBinder.setCache.v1.", TTL = 3 * 86400e3, API = "https://api.tcgdex.net/v2/en/";
   var VARIANTS = ["normal", "holofoil", "reverse-holofoil", "1st-edition-holofoil", "1st-edition-normal", "unlimited-holofoil", "unlimited"];
   var byId = {}; SETS.forEach(function (s) { byId[s.id] = s; });
   var ui = { set: null, showOwned: false, q: "", open: false, loading: null, err: null, data: {} };
@@ -27,8 +27,11 @@
     for (var j = 0; j < ks.length; j++) if (typeof cm[ks[j]] === "number" && cm[ks[j]] > 0) return { c: Math.round(cm[ks[j]] * 100), cur: "EUR", src: "Cardmarket " + ks[j], upd: String(cm.updated || "").slice(0, 10) };
     return null;
   }
+  // Old (v1) cache entries are dropped. A cached set is used only if it has the full shape a live fetch makes.
+  try { Object.keys(localStorage).forEach(function (k) { if (k.indexOf(OLDCKEY) === 0) localStorage.removeItem(k); }); } catch (err) {}
+  function goodShape(d) { return d && d.complete && Array.isArray(d.cards) && d.cards.length && d.cards.every(function (c) { return c && c.id && "img" in c && "price" in c; }); }
   function cached(id) {
-    try { var j = JSON.parse(localStorage.getItem(CKEY + id) || "null"); if (j && Date.now() - j.t < TTL && j.d && j.d.complete) return j.d; } catch (err) {}
+    try { var j = JSON.parse(localStorage.getItem(CKEY + id) || "null"); if (j && Date.now() - j.t < TTL && goodShape(j.d)) return j.d; localStorage.removeItem(CKEY + id); } catch (err) {}
     return null;
   }
   function store(id, d) {
@@ -52,7 +55,7 @@
         if (next >= cards.length) return Promise.resolve();
         var c = cards[next++];
         return getJSON(API + "cards/" + encodeURIComponent(c.id)).then(function (f) { c.rarity = f.rarity || null; c.price = pickPrice(f.pricing); }, function () { failed++; })
-          .then(function () { ui.loading.done++; if (ui.loading.tok === tok && (ui.loading.done % 20 === 0)) render(); return worker(); });
+          .then(function () { ui.loading.done++; if (ui.loading.tok === tok && ui.set === id) progress(); return worker(); });
       }
       var ws = []; for (var i = 0; i < 6; i++) ws.push(worker());
       return Promise.all(ws).then(function () { d.complete = failed === 0; d.failed = failed; if (d.complete) store(id, d); return d; });
@@ -75,9 +78,18 @@
     var pc = "https://www.pricecharting.com/search-products?type=prices&q=" + encodeURIComponent(c.name + " " + c.n + " " + setName);
     return '<a href="' + esc(tcg) + '" target="_blank" rel="noopener">TCGplayer</a><a href="' + esc(pc) + '" target="_blank" rel="noopener">PriceCharting</a>';
   }
+  // TCGdex "image" is a base URL; the file is <base>/low.webp (or /high.png, /low.png). If one fails,
+  // try the next, then show a labeled sleeve. Nothing is remembered, so the next render tries again.
+  var SUFFIX = ["/low.webp", "/high.png", "/low.png"];
+  function sleeve(c, d) { return '<div class="noimg"><b>' + esc(c.name) + "</b>#" + esc(c.n) + ' · no image<a href="https://www.pricecharting.com/search-products?type=prices&q=' + esc(encodeURIComponent(c.name + " " + c.n + " " + d.name)) + '" target="_blank" rel="noopener">Find a photo</a></div>'; }
+  function imgHTML(c, d) {
+    var base = typeof c.img === "string" ? c.img.replace(/\/(low|high)\.(webp|png|jpg)$/, "") : "";
+    if (!/^https:\/\//.test(base)) return sleeve(c, d);
+    return '<img src="' + esc(base + SUFFIX[0]) + '" data-base="' + esc(base) + '" data-k="0" data-sleeve="' + esc(sleeve(c, d)) + '" alt="' + esc(c.name) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
+  }
   function cardHTML(c, d, ownedIdx) {
     var own = ownedIdx && ownedIdx.length, e = own ? D.entries[ownedIdx[0]] : null;
-    var img = c.img ? '<img src="' + esc(c.img + "/low.webp") + '" alt="" loading="lazy">' : '<div class="noimg"><b>' + esc(c.name) + "</b>No image</div>";
+    var img = imgHTML(c, d);
     return '<div class="ccard' + (own ? " own" : "") + '"><div class="cimg">' + img + "</div>" +
       '<div class="cn" title="' + esc(c.name) + '">' + esc(c.name) + '</div><div class="cs">#' + esc(c.n) + (d.official ? "/" + d.official : "") + (c.rarity ? " · " + esc(c.rarity) : "") + "</div>" +
       (own ? '<div class="cp mine" title="Your PriceCharting price, per card">You own ' + ownedIdx.reduce(function (a, i) { return a + D.entries[i].qty; }, 0) + " · " + money(e.unitCents) + "</div>"
@@ -98,6 +110,9 @@
     shell = true;
     $("completionView").innerHTML = '<section class="set"><div class="set-head"><h2>Set Completion</h2><span class="meta">Pick any set to see what you\'re missing, cheapest first.</span></div>' +
       '<div class="spick"><input id="setSearch" type="search" placeholder="Search ' + SETS.length + ' sets: name, id or series…" autocomplete="off" aria-label="Find a set"><div id="setOpts"></div></div><div id="cbody"></div></section>';
+  }
+  function progress() {
+    var m = document.querySelector("#cbody .cmeta"); if (m && ui.loading) m.textContent = "Loading prices from TCGdex: " + ui.loading.done + " / " + ui.loading.total + "…";
   }
   function render() {
     var s = byId[ui.set], d = ui.data[ui.set] || PRE[ui.set] || null;
@@ -133,6 +148,12 @@
     $("cbody").innerHTML = html;
   }
   var v = $("completionView");
+  v.addEventListener("error", function (ev) {
+    var im = ev.target; if (!im || im.tagName !== "IMG" || !im.hasAttribute("data-base")) return;
+    var k = +im.getAttribute("data-k") + 1;
+    if (k < SUFFIX.length) { im.setAttribute("data-k", k); im.src = im.getAttribute("data-base") + SUFFIX[k]; return; }
+    var t = document.createElement("div"); t.innerHTML = im.getAttribute("data-sleeve"); im.replaceWith(t.firstChild);
+  }, true);
   v.addEventListener("focusin", function (ev) { if (ev.target.id === "setSearch" && !ui.open) { ui.open = true; renderPicker(); } });
   v.addEventListener("input", function (ev) { if (ev.target.id === "setSearch") { ui.q = ev.target.value; ui.open = true; renderPicker(); } });
   v.addEventListener("keydown", function (ev) {

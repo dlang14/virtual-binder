@@ -291,3 +291,4 @@ main[hidden]{display:none}
 .ccard .cl a{color:var(--ink-2)}
 .ccard .cl a:hover{color:var(--accent)}
 #completionView code{background:rgba(255,255,255,.08);padding:1px 5px;border-radius:4px}
+.ccard .cimg .noimg a{margin-top:6px;font-size:11px;color:var(--ink-2)}
