@@ -298,21 +298,34 @@ main[hidden]{display:none}
 .ccard .cl a:hover{color:var(--accent)}
 #completionView code{background:rgba(var(--fg-rgb),.08);padding:1px 5px;border-radius:4px}
 .ccard .cimg .noimg a{margin-top:6px;font-size:11px;color:var(--ink-2)}
-/* Captions sit below the card image so the whole card stays visible.
-   Each pocket = image area (63:88) + a fixed caption strip (--caph) holding a badge line and up to 3 text lines. */
-.pocket{--caph:76px;aspect-ratio:auto;padding-bottom:var(--caph)}
-.g4 .pocket{--caph:72px}
+/* Binder sleeve: the card image fills the slot width (63:88, card-shaped corners) with a
+   fixed two-line caption under it, so every slot in a row lines up.
+   100cqw = the slot's content width, so the image height is 100cqw * 88 / 63. */
+.pocket{--pad:7px;--imgh:calc(100cqw * 88 / 63);container-type:inline-size;aspect-ratio:auto;padding:var(--pad);border-radius:12px}
 .pocket::before{content:"";display:block;aspect-ratio:63/88}
-.pocket img{inset:4px 4px auto 4px;height:calc(100% - var(--caph) - 8px)}
-.pocket .noimg{inset:8px 8px calc(var(--caph) + 8px) 8px}
-.pocket .art{inset:auto 10%;top:calc((100% - var(--caph)) * .14);height:calc((100% - var(--caph)) * .56)}
-.pocket::after{bottom:var(--caph)}
-.caption{top:auto;height:var(--caph);padding:22px 7px 4px;background:none;border-top:1px solid var(--sleeve-edge)}
-.tag.grade,.tag.qty,.tag.pin,.tag.subreg,.kslot[data-dex] .tag.subreg,.tag.pcmark{top:calc(100% - var(--caph) + 4px);bottom:auto}
-.tag.grade{left:7px}.tag.qty{right:7px}
-.tag.pin{left:64px;padding:2px 5px}
-.tag.pcmark{right:40px}
-.tag.subreg,.kslot[data-dex] .tag.subreg{left:50%;right:auto;transform:translateX(-50%)}
-.cyc{top:calc((100% - var(--caph)) * .4)}
-.bslot.empty .plus{margin-bottom:var(--caph)}
-@media (max-width:640px){.pocket{--caph:64px}.g4 .pocket{--caph:58px}.caption{padding-top:19px}}
+.pocket img{inset:var(--pad) var(--pad) auto;width:calc(100% - 2 * var(--pad));height:auto;aspect-ratio:63/88;object-fit:cover;border-radius:calc(100cqw * .045)}
+.pocket.src-pc > img:not(.art){object-fit:contain}
+.pocket .noimg{inset:var(--pad) var(--pad) auto;height:var(--imgh)}
+.pocket .art{inset:auto 12%;top:calc(var(--pad) + var(--imgh) * .16);width:76%;height:calc(var(--imgh) * .6);border-radius:0}
+.pocket::after{inset:var(--pad) var(--pad) auto;height:var(--imgh);border-radius:calc(100cqw * .045)}
+.cyc{top:calc(var(--pad) + var(--imgh) * .42)}
+.caption{position:static;margin-top:6px;height:34px;padding:0 1px;background:none;font-size:12px;line-height:17px;display:flex;flex-direction:column}
+.g4 .caption{font-size:11.5px}
+.caption .l1,.caption .l2{display:flex;align-items:center;gap:5px;min-width:0;height:17px}
+.caption .n{flex:1 1 auto;min-width:0;font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.caption .n .var{color:var(--ink-3);font-weight:500}
+.caption .v{flex:none;color:var(--accent);font-weight:650}
+.caption .d{flex:1 1 auto;min-width:0;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip{flex:none;display:inline-flex;align-items:center;gap:2px;height:15px;padding:0 5px;border-radius:999px;font-size:10px;font-weight:700;line-height:1;
+  background:rgba(var(--fg-rgb),.1);color:var(--ink);border:1px solid rgba(var(--fg-rgb),.16)}
+.chip.qty{background:var(--accent);color:var(--on-accent);border-color:var(--accent)}
+.chip.graded{background:#2d5bd7;color:#fff;border-color:#2d5bd7}
+.chip.subreg{background:#5b3f8c;color:#fff;border-color:#5b3f8c}
+.chip.pcchip{display:none;background:rgba(36,99,160,.92);color:#fff;border-color:transparent}
+.src-pc .chip.pcchip{display:inline-flex}
+.chip.pin{background:var(--accent);color:var(--on-accent);border-color:var(--accent);padding:0 4px}
+.pocket > .tag.pcmark{display:none!important}
+.pocket.missing .caption .n,.kslot.missing .caption .n,.kslot.missing .caption .d{color:var(--ink-3)}
+.pocket:not(:has(.caption)){padding-bottom:calc(var(--pad) + 40px)}
+.bslot.empty{display:block}.bslot.empty .plus{position:absolute;left:0;right:0;top:calc(var(--pad) + var(--imgh) / 2);transform:translateY(-50%);text-align:center}
+@media (max-width:640px){.pocket{--pad:5px}.caption{font-size:10.5px;height:30px;line-height:15px}.caption .l1,.caption .l2{height:15px}.chip{font-size:9px;height:13px;padding:0 4px}}

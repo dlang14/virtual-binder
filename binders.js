@@ -146,8 +146,7 @@
     if (x.dex) {
       var k = DEX[x.dex - 1], owned = k.cards.length;
       return '<div class="pocket bslot kslot missing ph' + sel + '" draggable="true"' + at + '><img class="art" src="' + esc(k.art) + '" alt="">' + rm +
-        '<span class="tag grade">#' + String(k.dex).padStart(3, "0") + "</span>" +
-        '<div class="caption"><div class="n" title="' + esc(k.name) + '">' + esc(k.name) + '</div><div class="row"><span>' + (owned ? "you own " + owned + " · drop one here" : "not owned yet") + "</span></div></div></div>";
+        VB.capHTML({ name: k.name, chips: [VB.chip("#" + String(k.dex).padStart(3, "0"), "dexno")], line2: owned ? "you own " + owned + " · drop one here" : "not owned yet" }) + "</div>";
     }
     var i = entryIndex(x.k);
     if (i == null) {
@@ -156,9 +155,8 @@
     var e = D.entries[i], art = e.species && e.species[0] ? DEX[e.species[0] - 1].art : null;
     return '<div class="pocket bslot filled' + VB.pcCls(e.images) + sel + '" draggable="true"' + at + ' data-i="' + i + '">' +
       VB.imgTag(e.images, { alt: e.name, art: art, fbHtml: "<b>" + esc(e.name) + "</b>#" + esc(e.number) }) + rm +
-      '<span class="tag grade' + (e.graded ? " graded" : "") + '">' + esc(e.grade) + "</span>" +
-      '<div class="caption"><div class="n" title="' + esc(e.product) + '">' + esc(e.name) + (e.variant ? ' <span style="color:var(--ink-3)">· ' + esc(e.variant) + "</span>" : "") + "</div>" +
-      '<div class="row"><span class="setn">' + esc(e.console.replace(/^Pokemon /, "")) + " #" + esc(e.number) + '</span><span class="v">' + money(e.unitCents) + "</span></div></div></div>";
+      VB.capHTML({ name: e.name, title: e.product, variant: e.variant, price: money(e.unitCents), pc: true, chips: [VB.gradeChip(e)],
+        line2: e.console.replace(/^Pokemon /, "") + " #" + e.number }) + "</div>";
   }
   function stats(b) {
     var f = flat(b), filled = 0, ph = 0, val = 0, gone = 0;
