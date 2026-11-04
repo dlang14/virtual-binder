@@ -67,6 +67,21 @@ Species are found from the card name. The 1,025 species names come from [PokeAPI
 - **Tag teams count for each Pokémon:** "Moltres & Zapdos & Articuno GX" fills three slots.
 - **Hisui:** the Hisuian Pokémon (#899–905) are shown in the Galar tab with a "Hisui" tag. Meltan and Melmetal are shown in Alola.
 
+### Sets that don't match
+
+The build matches each PriceCharting set name ("console name" in the CSV) to the card databases automatically. It drops the "Pokemon " prefix and compares names while ignoring case, punctuation, accents and "&"/"and"/"vs", so "Pokemon Fire Red & Leaf Green" finds "FireRed & LeafGreen". A matched set also includes the subsets PriceCharting lists under it: Trainer Gallery, Galarian Gallery, Shiny Vault and Classic Collection cards. Japanese sets are looked up in the `JA_SETS` table in `scripts/build.py`, because TCGdex lists them only under their Japanese names.
+
+At the end of the build, a summary lists the sets that were matched automatically and any that weren't. Rows from an unmatched set still build: they keep their PriceCharting price and use PriceCharting's product photo when it has one. Chinese, Korean, Topps and other sets that neither database covers stay unmatched.
+
+To map a set yourself, add a line to `SET_MAP` at the top of `scripts/build.py`. Use the console name exactly as it appears in your CSV, with TCGdex set ids (from `https://api.tcgdex.net/v2/en/sets`) and, optionally, Pokemon TCG API set ids:
+
+```python
+"Pokemon Delta Reign": {"dex": ["<tcgdex set id>"]},
+"Pokemon Japanese Eevee Heroes": {"dex": ["S6a"], "lang": "ja", "complete": False, "number_only": True},
+```
+
+Entries in `SET_MAP` always win over the automatic match.
+
 ## Saved picks
 
 - **Automatic:** picks are saved in the browser's `localStorage`, keyed by National Dex number and a stable row key. The row key is built from the PriceCharting id plus the row's details, so picks survive reloads, rebuilds and new exports.
