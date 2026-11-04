@@ -7,7 +7,7 @@
     document.getElementById("binder").innerHTML = '<div class="empty-msg"><h2>Run the build first</h2>' +
       "<p>This page reads <code>binder-data.js</code>, which is generated from your PriceCharting collection export and isn't included in the repo.</p>" +
       "<ol><li>Export your collection from PriceCharting as a CSV and save it as <code>data/collection.csv</code>.</li>" +
-      "<li>Run <code>python3 scripts/build.py</code>. To try it with the example data instead, run <code>python3 scripts/build.py data/sample-collection.csv</code>.</li>" +
+      "<li>Run <code>python3 scripts/build.py</code> (on Windows: <code>py scripts\\build.py</code>). To try it with the example data instead, run <code>python3 scripts/build.py data/sample-collection.csv</code>.</li>" +
       "<li>Reload this page.</li></ol></div>";
     return;
   }

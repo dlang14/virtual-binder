@@ -13,8 +13,14 @@ fallback, and writes:
 API responses are cached in data/cache/ (delete it to force a refresh).
 No API key or secret is needed. Prices come only from the CSV.
 """
-import argparse, concurrent.futures, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.request, urllib.parse
+import argparse, concurrent.futures, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.error, urllib.request, urllib.parse
 from difflib import SequenceMatcher
+
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="backslashreplace")  # e.g. Japanese card names on a Windows cp1252 console
+    except (AttributeError, ValueError):
+        pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "data", "cache")
@@ -29,7 +35,7 @@ SET_MAP = {
     "Pokemon Jungle": {"ptcg": ["base2"], "dex": ["base2"]},
     "Pokemon Fossil": {"ptcg": ["base3"], "dex": ["base3"]},
     "Pokemon Neo Destiny": {"ptcg": ["neo4"], "dex": ["neo4"]},
-    "Pokemon Hidden Fates": {"ptcg": ["sm115"], "dex": ["sm115"]},
+    "Pokemon Hidden Fates": {"ptcg": ["sm115", "sma"], "dex": ["sm115", "sma"]},
     "Pokemon Chilling Reign": {"ptcg": ["swsh6"], "dex": ["swsh6"]},
     "Pokemon Evolving Skies": {"ptcg": ["swsh7"], "dex": ["swsh7"]},
     "Pokemon Celebrations": {"ptcg": ["cel25", "cel25c"], "dex": ["cel25", "cel25cc"], "extra_ptcg": ["swshp"]},
@@ -238,25 +244,36 @@ def build_species_matcher(species):
 
 UA = {"User-Agent": "virtual-binder/1.0 (personal collection viewer)"}
 
+_down = {}  # host -> failed requests this build
+
 def get_json(url, cache_name, max_age=None, tries=5):
     """GET a JSON URL, cached in data/cache/<cache_name>. max_age (seconds) refetches older cache files."""
+    cache_name = re.sub(r'[<>:"/\\|?*\s]', "_", cache_name)  # characters Windows (or any OS) can't use in a file name
     path = os.path.join(CACHE, cache_name)
     if os.path.exists(path) and (max_age is None or time.time() - os.path.getmtime(path) < max_age):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
+    host = urllib.parse.urlsplit(url).netloc
+    if _down.get(host, 0) >= 3:  # 3 requests to this API have failed this build; use the other source instead of waiting
+        return None
     last = None
     for attempt in range(tries):
         try:
             req = urllib.request.Request(url, headers=UA)
             with urllib.request.urlopen(req, timeout=60) as r:
                 data = json.load(r)
-            with open(path, "w") as f:
+            with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f)
             return data
         except Exception as e:  # rate limits / timeouts on the keyless API
             last = e
             time.sleep(2 + attempt * 3)
     print(f"  ! failed {url}: {last}", file=sys.stderr)
+    if isinstance(last, urllib.error.URLError) and "CERTIFICATE_VERIFY_FAILED" in str(last):
+        print("  ! Python can't verify HTTPS certificates. See 'Troubleshooting' in README.md.", file=sys.stderr)
+    _down[host] = _down.get(host, 0) + 1
+    if _down[host] == 3:
+        print(f"  ! {host} keeps failing; skipping it for the rest of this build (cards fall back to the other source)", file=sys.stderr)
     return None
 
 # ---- PriceCharting product photos: fallback for rows the card databases have no image for ----
@@ -305,7 +322,7 @@ def pc_photo(pc_id):
         return {"img": None}
     path = os.path.join(CACHE, f"pc_{pc_id}.json")
     if os.path.exists(path):
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     status, final, html = _pc_get(f"https://www.pricecharting.com/game/{pc_id}")
     res = {"img": None, "thumb": None, "page": final, "status": status}
@@ -322,7 +339,7 @@ def pc_photo(pc_id):
     else:
         print(f"  ! PriceCharting {pc_id}: HTTP {status}", file=sys.stderr)
         return res  # don't cache failures, so the next build retries
-    with open(path, "w") as f:
+    with open(path, "w", encoding="utf-8") as f:
         json.dump(res, f)
     return res
 
@@ -492,7 +509,7 @@ def read_json_file(path, label):
     if not os.path.exists(path):
         return None
     try:
-        with open(path) as f:
+        with open(path, encoding="utf-8") as f:
             return json.load(f)
     except (ValueError, OSError) as err:
         print(f"  ! ignoring {label}: {err}", file=sys.stderr)
@@ -513,13 +530,13 @@ def save_snapshot(csv_path, entries, date, generated):
     snap = {"version": 1, "date": date, "generated": generated, "source": os.path.basename(csv_path),
             "totalCents": sum(e["valueCents"] for e in entries), "cards": sum(e["qty"] for e in entries),
             "rows": len(entries), "items": items}
-    with open(os.path.join(folder, f"{date}.json"), "w") as f:
+    with open(os.path.join(folder, f"{date}.json"), "w", encoding="utf-8") as f:
         json.dump(snap, f, separators=(",", ":"))
     snaps = []
     for name in sorted(os.listdir(folder)):
         if re.match(r"^\d{4}-\d{2}-\d{2}\.json$", name):
             try:
-                with open(os.path.join(folder, name)) as f:
+                with open(os.path.join(folder, name), encoding="utf-8") as f:
                     snaps.append(json.load(f))
             except (ValueError, OSError) as err:
                 print(f"  ! skipping history file {name}: {err}", file=sys.stderr)
@@ -730,7 +747,7 @@ def main():
     picks_path = os.path.join(ROOT, "data", "picks.json")
     if os.path.exists(picks_path):
         try:
-            with open(picks_path) as f:
+            with open(picks_path, encoding="utf-8") as f:
                 raw = json.load(f)
             raw = raw.get("picks", raw) if isinstance(raw, dict) else {}
             default_picks = {str(k): v for k, v in raw.items() if isinstance(v, str)}
@@ -769,7 +786,7 @@ def main():
     remember = os.path.join(CACHE, "completion_sets.json")
     if args.sets is not None:
         want = [] if args.sets.strip().lower() == "none" else [x.strip() for x in args.sets.split(",") if x.strip()]
-        with open(remember, "w") as f:
+        with open(remember, "w", encoding="utf-8") as f:
             json.dump(want, f)
     else:
         want = (read_json_file(remember, "completion_sets.json") or []) if os.path.exists(remember) else []
@@ -807,9 +824,9 @@ def main():
         "history": history,
         "dexSets": catalog, "ownedDex": owned_dex, "completion": completion,
     }
-    with open(os.path.join(ROOT, "data", "cards.json"), "w") as f:
+    with open(os.path.join(ROOT, "data", "cards.json"), "w", encoding="utf-8") as f:
         json.dump(out, f, indent=1)
-    with open(os.path.join(ROOT, "binder-data.js"), "w") as f:
+    with open(os.path.join(ROOT, "binder-data.js"), "w", encoding="utf-8") as f:
         f.write("// Generated by scripts/build.py. Do not edit by hand.\nwindow.BINDER_DATA = ")
         json.dump(out, f, separators=(",", ":"))
         f.write(";\n")
