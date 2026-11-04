@@ -8,6 +8,8 @@ data/picks.json
 picks.json
 data/binders.json
 binders.json
+# Value snapshots (your per-card prices over time)
+data/history/
 
 # API cache (recreated by scripts/build.py; pc_*.json are lookups for your own products)
 data/cache/

@@ -11,6 +11,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
   - Each region shows "X / N collected", a progress bar and a value total. An "All regions" summary adds them up.
 - **Swap the card in a slot:** click a Pokédex slot to see every card you own of that species, then choose **Use this card**. You can also cycle with the ‹ › arrows. Your choices are pinned, saved in the browser, and can be exported or imported as `picks.json`.
 - **My Binders:** make your own binders, like "Eeveelutions", "Charizards" or "Fire types". See [My Binders](#my-binders).
+- **Value over time:** every build saves a snapshot of your collection's value, so the Value tab can chart it and list your biggest gainers and losers since the last export. PriceCharting doesn't keep that history for you. See [Value over time](#value-over-time).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
 - **Prices from your export only:** nothing is re-priced. A PriceCharting row's price is the row total, so the per-card price is price ÷ quantity.
 
@@ -40,7 +41,7 @@ open index.html          # macOS. On Windows: start index.html. On Linux: xdg-op
    python3 scripts/build.py                        # reads data/collection.csv
    python3 scripts/build.py ~/Downloads/export.csv # or any path
    ```
-   The build prints a summary: card count, total value, matched and unmatched rows, rows with no species, and rows with no image.
+   The build also saves a value snapshot for the Value tab. It prints a summary: card count, total value, matched and unmatched rows, rows with no species, and rows with no image.
 4. **Open `index.html`** in your browser. Reload it after every rebuild.
 
 To add the cards from a new export, replace the CSV and run the build again.
@@ -99,9 +100,27 @@ The **My Binders** tab is for binders you lay out yourself.
 
 The build looks up each owned English card on TCGdex once (about one request per card, cached in `data/cache/dexcard_*.json`) to get its Pokémon type and whether it's a Trainer or Energy card. A first build of a few hundred cards takes about 30 seconds more. Japanese prints and rows that aren't in TCGdex have no type. Run `python3 scripts/build.py --no-types` to skip the lookups.
 
+## Value over time
+
+Each build saves a snapshot to `data/history/<csv name>/<date>.json`, for example `data/history/collection/2026-11-03.json`. A snapshot holds the date, total value, card and row counts, and each row's PriceCharting price, keyed by the same stable row key as picks and binders.
+
+- **One per day:** rebuilding on the same day replaces that day's snapshot, so the history has one point per day you rebuilt (in practice, one per export).
+- **Kept per CSV name:** building the sample (`sample-collection.csv`) never mixes with your own `collection.csv` history.
+- **The Value tab** shows:
+  - a line chart of total value over time, and one of card count (inline SVG, no libraries or CDNs)
+  - the change since the previous snapshot, and since the first one
+  - the top 10 gainers and top 10 losers by per-card price since the previous snapshot, in $ and %
+  - cards that are new since the previous snapshot and cards that were removed
+  - a table of every snapshot
+- **Matching rows between snapshots:** rows pair up by row key. A row whose details changed in the new export (for example a different folder) is paired by PriceCharting id and grade, so it doesn't show up as removed and new.
+- **Only one snapshot yet?** The tab says so. Rebuild after your next export to see changes.
+- **Options:** `--snapshot-date 2026-10-01` files a build under another date (useful for an older export you still have). `--no-history` skips saving a snapshot.
+
+Prices are only ever PriceCharting's prices from your exports; nothing is estimated between snapshots.
+
 ## Direct links
 
-`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions. `#binders` opens My Binders.
+`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions. `#binders` opens My Binders and `#value` opens Value.
 
 ## Keep your data private
 
@@ -111,6 +130,7 @@ The files the build generates contain your collection and PriceCharting's prices
 - `data/cards.json`
 - `data/picks.json`
 - `data/binders.json`
+- `data/history/`
 - `data/cache/pc_*.json`
 
 PriceCharting's data is licensed for personal use, so **don't publish your generated files or your CSV**. The included `.gitignore` already excludes them, along with every `*.csv` except the sample. To share your binder, share screenshots instead.
@@ -121,6 +141,7 @@ PriceCharting's data is licensed for personal use, so **don't publish your gener
 index.html          the page
 app.js              rendering: set binder, Pokédex tabs, picks, image fallbacks, tab switching
 binders.js          My Binders tab
+value.js            Value tab (value over time)
 styles.css          binder look
 scripts/build.py    CSV -> binder-data.js (Python standard library only)
 data/sample-collection.csv   made-up example rows to try the site
