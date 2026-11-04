@@ -18,7 +18,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
 
 ## Requirements
 
-- Python 3.8 or newer. The build uses only the standard library, so there's nothing to `pip install`.
+- Python 3.8 or newer, on macOS, Windows or Linux. The build uses only the standard library, so there's nothing to `pip install`. On Windows, see [Windows](#windows).
 - A modern browser. Chrome, Edge or Firefox are recommended; see [Saved picks](#saved-picks) for Safari.
 - An internet connection for the first build, which fetches set lists and images. After that, results are cached.
 
@@ -30,8 +30,10 @@ cd virtual-binder
 
 # Try it with the made-up example data:
 python3 scripts/build.py data/sample-collection.csv
-open index.html          # macOS. On Windows: start index.html. On Linux: xdg-open index.html
+open index.html          # macOS. On Linux: xdg-open index.html
 ```
+
+On Windows, use the PowerShell commands in [Windows](#windows).
 
 ## Use your own collection
 
@@ -46,6 +48,24 @@ open index.html          # macOS. On Windows: start index.html. On Linux: xdg-op
 4. **Open `index.html`** in your browser. Reload it after every rebuild.
 
 To add the cards from a new export, replace the CSV and run the build again.
+
+### Windows
+
+Install Python from <https://www.python.org/downloads/> (tick **Add python.exe to PATH**) or from the Microsoft Store. On Windows, the command is usually `py` instead of `python3`; `python` also works if it's on your PATH. Every `python3 scripts/build.py …` command in this README works the same way with `py scripts\build.py …`.
+
+If you don't use git, download the repository with **Code → Download ZIP** on GitHub and extract it.
+
+In PowerShell:
+
+```powershell
+cd $HOME\Downloads\virtual-binder
+py scripts\build.py data\sample-collection.csv    # try the example data
+py scripts\build.py                                # your export, saved as data\collection.csv
+py scripts\build.py $HOME\Downloads\export.csv      # or any path
+Start-Process index.html                          # open the site in your default browser
+```
+
+You can also double-click `index.html` in File Explorer. Chrome, Edge and Firefox all work from a local file. After a rebuild, reload the page; press **Ctrl+Shift+R** to make sure the browser loads the new files. To force a fresh download of everything the build caches, delete the cache folder with `Remove-Item -Recurse -Force data\cache`.
 
 ### What the build does
 
@@ -162,6 +182,13 @@ Limitations:
 - A card counts as owned only when the build matched it to a TCGdex card. Cards matched only through the Pokémon TCG API, and Japanese cards, aren't counted.
 - Prices are TCGdex's copies of TCGplayer and Cardmarket prices, not PriceCharting's. Cards with only a EUR price, or no price, are left out of the cost to complete. Very new sets often have no prices yet.
 - Precomputing all ~220 sets (about 24,000 cards) would take a long time, so the build only precomputes the sets you ask for.
+
+## Troubleshooting
+
+- **`CERTIFICATE_VERIFY_FAILED`** during a build: Python can't verify HTTPS certificates. On macOS with Python from python.org, run **Install Certificates.command** in your `Applications/Python 3.x` folder. On Windows, Python uses the Windows certificate store, so this usually means the network intercepts HTTPS (some work or school networks do); build from another network.
+- **"keeps failing; skipping it for the rest of this build"**: the Pokémon TCG API or TCGdex is down or rate-limiting you. The build carries on with the other source, and failed lookups aren't cached, so the next build tries again.
+- **Odd characters in the build output** (such as `\u30df`) on a Windows console: that's a Japanese card name the console can't display. It doesn't affect the site. Run `$env:PYTHONUTF8=1` in PowerShell first to see the real characters.
+- **The page looks out of date:** reload with **Ctrl+Shift+R** (Windows and Linux) or **Cmd+Shift+R** (macOS).
 
 ## Direct links
 
