@@ -13,7 +13,7 @@ fallback, and writes:
 API responses are cached in data/cache/ (delete it to force a refresh).
 No API key or secret is needed. Prices come only from the CSV.
 """
-import argparse, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.request, urllib.parse
+import argparse, concurrent.futures, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.request, urllib.parse
 from difflib import SequenceMatcher
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -289,6 +289,52 @@ def dex_twin(e, pool):
             return c["id"]
     return None
 
+PRICE_TTL = 3 * 86400  # TCGdex prices refresh daily; refetch a card's price after 3 days
+TCGP_VARIANTS = ["normal", "holofoil", "reverse-holofoil", "1st-edition-holofoil", "1st-edition-normal", "unlimited-holofoil", "unlimited"]
+
+def pick_price(pricing):
+    """Market price from TCGdex 'pricing': TCGplayer market price in USD (normal print first), else the
+    Cardmarket trend in EUR. None when TCGdex has no price. Never estimated."""
+    tp = (pricing or {}).get("tcgplayer") or {}
+    variants = [v for v in TCGP_VARIANTS if v in tp] + [v for v in tp if v not in TCGP_VARIANTS and isinstance(tp[v], dict)]
+    for v in variants:
+        mp = (tp.get(v) or {}).get("marketPrice")
+        if isinstance(mp, (int, float)) and mp > 0:
+            return {"c": round(mp * 100), "cur": "USD", "src": "TCGplayer market", "var": v,
+                    "pid": tp[v].get("productId"), "upd": (tp.get("updated") or "")[:10]}
+    cm = (pricing or {}).get("cardmarket") or {}
+    for k in ("trend", "avg"):
+        if isinstance(cm.get(k), (int, float)) and cm[k] > 0:
+            return {"c": round(cm[k] * 100), "cur": "EUR", "src": "Cardmarket " + k, "upd": (cm.get("updated") or "")[:10]}
+    return None
+
+def tcgdex_catalog():
+    """Every English TCGdex set, newest first: [{id, name, total, official, serie}]."""
+    sets = get_json("https://api.tcgdex.net/v2/en/sets", "tcgdex_sets_en.json", max_age=7 * 86400) or []
+    serie_of = {}
+    for sr in get_json("https://api.tcgdex.net/v2/en/series", "tcgdex_series_en.json", max_age=7 * 86400) or []:
+        d = get_json(f"https://api.tcgdex.net/v2/en/series/{urllib.parse.quote(sr['id'])}", f"tcgdex_serie_en_{sr['id']}.json", max_age=7 * 86400)
+        for st in (d or {}).get("sets", []):
+            serie_of[st["id"]] = sr["name"]
+    out = [{"id": x["id"], "name": x["name"], "total": (x.get("cardCount") or {}).get("total"),
+            "official": (x.get("cardCount") or {}).get("official"), "serie": serie_of.get(x["id"], "")} for x in sets]
+    return out[::-1]
+
+def completion_set(set_id):
+    """Card list + market prices for one TCGdex set (Set Completion tab)."""
+    d = get_json(f"https://api.tcgdex.net/v2/en/sets/{urllib.parse.quote(set_id)}", f"dex_en_{set_id}.json")
+    if not d:
+        return None
+    cards = d.get("cards", [])
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        full = list(pool.map(lambda c: dex_card(c["id"], max_age=PRICE_TTL), cards))
+    out = []
+    for c, f in zip(cards, full):
+        out.append({"id": c["id"], "n": c["localId"], "name": c["name"], "img": c.get("image"),
+                    "rarity": (f or {}).get("rarity"), "price": pick_price((f or {}).get("pricing"))})
+    return {"id": set_id, "name": d.get("name"), "release": d.get("releaseDate"),
+            "official": (d.get("cardCount") or {}).get("official"), "fetched": time.strftime("%Y-%m-%d"), "cards": out}
+
 def num_key(n):
     m = re.match(r"^([A-Za-z]*)(\d+)(.*)$", str(n))
     if not m:
@@ -332,6 +378,10 @@ def parse_args():
                     help="don't save a value snapshot to data/history/ for this build")
     ap.add_argument("--snapshot-date", metavar="YYYY-MM-DD",
                     help="date to file this build's value snapshot under (default: today)")
+    ap.add_argument("--sets", metavar="IDS",
+                    help="precompute Set Completion data (card lists + TCGdex market prices) for these TCGdex set ids, "
+                         "comma-separated, or 'owned' for every English set you own, or 'none' to stop. Remembered "
+                         "for later builds. Sets not precomputed are fetched by the page on demand.")
     ap.add_argument("--no-types", action="store_true",
                     help="skip the per-card TCGdex lookups that add Pokemon types (used by My Binders filters)")
     return ap.parse_args()
@@ -586,13 +636,13 @@ def main():
 
     # Types / card category from TCGdex (one cached request per distinct English card; types never change).
     # Used by the My Binders tray filter and the "type" quick-fill rule.
+    for e in entries:
+        pool = pools.get(e["console"], {})
+        e["dexId"] = dex_twin(e, pool) if pool.get("cfg", {}).get("lang", "en") == "en" else None
     if not args.no_types:
         typed = 0
         for e in entries:
-            pool = pools.get(e["console"], {})
-            lang = pool.get("cfg", {}).get("lang", "en")
-            cid = dex_twin(e, pool) if lang == "en" else None
-            e["dexId"] = cid
+            cid = e["dexId"]
             d = dex_card(cid) if cid else None
             e["types"] = (d or {}).get("types") or []
             e["category"] = (d or {}).get("category")
@@ -604,6 +654,35 @@ def main():
     default_binders = raw_binders.get("binders", []) if isinstance(raw_binders, dict) else (raw_binders if isinstance(raw_binders, list) else [])
     if default_binders:
         print(f"binders.json: {len(default_binders)} default custom binders", file=sys.stderr)
+
+    # Set Completion: every TCGdex set for the picker, which of its cards you own, and optional precomputed sets.
+    catalog = tcgdex_catalog()
+    owned_dex = {}
+    for i, e in enumerate(entries):
+        if e.get("dexId"):
+            sid = e["dexId"].rsplit("-", 1)[0]
+            owned_dex.setdefault(sid, {}).setdefault(e["dexId"], []).append(i)
+    remember = os.path.join(CACHE, "completion_sets.json")
+    if args.sets is not None:
+        want = [] if args.sets.strip().lower() == "none" else [x.strip() for x in args.sets.split(",") if x.strip()]
+        with open(remember, "w") as f:
+            json.dump(want, f)
+    else:
+        want = (read_json_file(remember, "completion_sets.json") or []) if os.path.exists(remember) else []
+    if "owned" in want:
+        want = [x for x in want if x != "owned"] + sorted(owned_dex)
+    known = {x["id"] for x in catalog}
+    completion = {}
+    for sid in dict.fromkeys(want):
+        if catalog and sid not in known:
+            print(f"  ? --sets: '{sid}' is not a TCGdex set id (see https://api.tcgdex.net/v2/en/sets)", file=sys.stderr)
+            continue
+        cs = completion_set(sid)
+        if cs:
+            completion[sid] = cs
+            priced = sum(1 for c in cs["cards"] if c["price"])
+            print(f"  completion {sid}: {len(cs['cards'])} cards, {priced} with a market price", file=sys.stderr)
+    print(f"set completion: {len(catalog)} TCGdex sets in the picker, {len(completion)} precomputed", file=sys.stderr)
 
     total_val = sum(e["valueCents"] for e in entries)
     generated = time.strftime("%Y-%m-%d %H:%M %Z")
@@ -622,6 +701,7 @@ def main():
         "defaultPicks": default_picks, "defaultBinders": default_binders,
         "hasTypes": any(e.get("types") for e in entries),
         "history": history,
+        "dexSets": catalog, "ownedDex": owned_dex, "completion": completion,
     }
     with open(os.path.join(ROOT, "data", "cards.json"), "w") as f:
         json.dump(out, f, indent=1)
