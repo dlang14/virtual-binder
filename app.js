@@ -114,18 +114,28 @@
   $("missingAll").addEventListener("change", function (e) { state.missingAll = e.target.checked; state.missing = {}; render(); });
 
   // ---- rendering ----
+  // Caption strip under a card: line 1 = name (+variant) and price, line 2 = chips and muted details.
+  function capHTML(o) {
+    var chips = (o.chips || []).filter(Boolean).join("");
+    return '<div class="caption"><div class="l1"><span class="n" title="' + esc(o.title || o.name) + '">' + esc(o.name) +
+      (o.variant ? ' <span class="var">· ' + esc(o.variant) + "</span>" : "") + "</span>" +
+      (o.price != null ? '<span class="v">' + o.price + "</span>" : "") + "</div>" +
+      '<div class="l2">' + chips + (o.pc ? '<span class="chip pcchip" title="Photo from PriceCharting (no card-database image)">PC photo</span>' : "") +
+      '<span class="d" title="' + esc(o.line2 || "") + '">' + esc(o.line2 || "") + "</span></div></div>";
+  }
+  var chip = function (text, cls, title) { return '<span class="chip' + (cls ? " " + cls : "") + '"' + (title ? ' title="' + esc(title) + '"' : "") + ">" + text + "</span>"; };
+  var gradeChip = function (e) { return e.graded ? chip(esc(e.grade), "graded") : ""; };
   function pocketHTML(p) {
-    var cap = '<div class="caption"><div class="n" title="' + esc(p.name) + '">' + esc(p.name) + (p.variant ? ' <span style="color:var(--ink-3)">· ' + esc(p.variant) + "</span>" : "") +
-      '</div><div class="row"><span>#' + esc(p.number) + '</span><span class="v">' + money(p.unitCents) + "</span></div>" +
-      (p.qty > 1 ? '<div class="row"><span>x' + p.qty + " · " + money(p.valueCents) + "</span></div>" : "") + "</div>";
+    var cap = capHTML({ name: p.name, variant: p.variant, price: money(p.unitCents), pc: true,
+      chips: [gradeChip(p), p.qty > 1 ? chip("×" + p.qty, "qty") : ""],
+      line2: "#" + p.number + (p.qty > 1 ? " · " + money(p.valueCents) + " total" : "") });
     var img = imgTag(p.images, { lazy: true, alt: p.name, fbHtml: "<b>" + esc(p.name) + "</b>#" + esc(p.number) + "<br>No image in the card databases yet" });
     return '<div class="pocket' + pcCls(p.images) + '" data-k="' + esc(p.key) + '">' + img +
-      '<span class="tag grade' + (p.graded ? " graded" : "") + '">' + esc(p.grade) + "</span>" +
-      (p.qty > 1 ? '<span class="tag qty">×' + p.qty + "</span>" : "") + cap + "</div>";
+      cap + "</div>";
   }
   function missingHTML(c) {
     return '<div class="pocket missing">' + (c.thumb ? '<img loading="lazy" src="' + esc(c.thumb) + '" alt="">' : "") +
-      '<div class="caption"><div class="n">' + esc(c.name) + '</div><div class="row"><span>#' + esc(c.number) + "</span><span>missing</span></div></div></div>";
+      capHTML({ name: c.name, line2: "#" + c.number + " · missing" }) + "</div>";
   }
   function pagesHTML(items) {
     var out = "", pg = 0;
@@ -274,23 +284,20 @@
   var PIN = '<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true"><path fill="currentColor" d="M16 3l5 5-3 1-4 4 1 5-2 2-4-4-5 5-1-1 5-5-4-4 2-2 5 1 4-4z"/></svg>';
   var pad3 = function (n) { return "#" + String(n).padStart(3, "0"); };
   function slotHTML(k, sub) {
-    var dexNo = pad3(k.dex), subTag = sub ? '<span class="tag subreg">' + esc(sub) + "</span>" : "";
+    var dexNo = pad3(k.dex), subTag = sub ? chip(esc(sub), "subreg") : "";
     if (!k.cards.length) {
-      return '<div class="pocket kslot missing"><img class="art" src="' + esc(k.art) + '" alt="">' + subTag +
-        '<div class="caption"><div class="n">' + esc(k.name) + '</div><div class="row"><span>' + dexNo + "</span><span>missing</span></div></div></div>";
+      return '<div class="pocket kslot missing"><img class="art" src="' + esc(k.art) + '" alt="">' +
+        capHTML({ name: k.name, chips: [chip(dexNo, "dexno"), subTag], line2: "missing" }) + "</div>";
     }
     var r = resolve(k), e = D.entries[r.idx], m = e.match;
     var img = imgTag(e.images, { alt: e.name, art: k.art });
     var others = k.cards.length - 1;
     return '<div class="pocket kslot' + (r.manual ? " picked" : "") + pcCls(e.images) + '" data-dex="' + k.dex + '">' + img +
-      '<span class="tag grade">' + dexNo + "</span>" + subTag +
-      (r.manual ? '<span class="tag pin" title="Your pick (not the most valuable)">' + PIN + "</span>" : "") +
-      (others ? '<span class="tag qty">+' + others + "</span>" +
-        '<button class="cyc prev" data-cycle="-1" title="Previous card" aria-label="Previous card">‹</button>' +
+      (others ? '<button class="cyc prev" data-cycle="-1" title="Previous card" aria-label="Previous card">‹</button>' +
         '<button class="cyc next" data-cycle="1" title="Next card" aria-label="Next card">›</button>' : "") +
-      '<div class="caption"><div class="n" title="' + esc(e.name) + '">' + esc(e.name) + (e.variant ? ' <span style="color:var(--ink-3)">· ' + esc(e.variant) + "</span>" : "") + "</div>" +
-      '<div class="row"><span class="setn">' + esc(e.console.replace(/^Pokemon /, "")) + " #" + esc(e.number) + '</span><span class="v">' + money(e.unitCents) + "</span></div>" +
-      (others ? '<div class="row"><span class="setn">' + others + " other card" + (others === 1 ? "" : "s") + (r.manual ? " · pinned" : "") + "</span></div>" : "") + "</div></div>";
+      capHTML({ name: e.name, variant: e.variant, price: money(e.unitCents), pc: true,
+        chips: [chip(dexNo, "dexno"), subTag, r.manual ? chip(PIN, "pin", "Your pick (not the most valuable)") : "", gradeChip(e), others ? chip("+" + others, "qty", others + " other card" + (others === 1 ? "" : "s")) : ""],
+        line2: e.console.replace(/^Pokemon /, "") + " #" + e.number }) + "</div>";
   }
   function summaryHTML() {
     var all = { got: 0, n: 0, val: 0 };
@@ -410,6 +417,7 @@
 
   // Shared helpers for the feature scripts (binders.js, ...), which load after this file.
   window.VB = {
+    capHTML: capHTML, chip: chip, gradeChip: gradeChip,
     D: D, $: $, money: money, esc: esc, numKey: numKey, imgTag: imgTag, pcCls: pcCls, firstSrc: firstSrc, setZoomImg: setZoomImg,
     DEX: DEX, byEntryKey: byEntryKey, byPcId: byPcId, setsByKey: setsByKey, showTab: showTab,
     registerTab: function (tab, viewId, show, hash) { VIEWS[tab] = [viewId]; EXT[tab] = { show: show, hash: hash || tab }; }

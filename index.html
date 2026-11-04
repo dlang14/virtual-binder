@@ -5,6 +5,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Virtual Binder</title>
 <link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="themes.css">
+<script>
+// Apply the saved theme before first paint (see themes.js). Storage may be blocked on file:// in Safari.
+(function(){var c="original";try{c=localStorage.getItem("vb-theme")||c}catch(e){}
+if(" original auto classic dark holo galaxy trainer contrast ".indexOf(" "+c+" ")<0)c="original";
+var t=c;if(c==="auto")t=window.matchMedia&&matchMedia("(prefers-color-scheme: light)").matches?"classic":"dark";
+var h=document.documentElement;h.setAttribute("data-theme-choice",c);if(t!=="original")h.setAttribute("data-theme",t);})();
+</script>
 </head>
 <body>
 <header class="cover">
@@ -62,6 +70,7 @@
 </div>
 
 <script src="binder-data.js"></script>
+<script src="themes.js"></script>
 <script src="app.js"></script>
 <script src="binders.js"></script>
 <script src="value.js"></script>

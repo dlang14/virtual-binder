@@ -1,0 +1,96 @@
+/* Themes. Each [data-theme] on <html> overrides the custom properties defined in styles.css :root.
+   "original" uses the :root defaults. Card images are never recolored; only missing slots stay grayed. */
+.tag.grade.graded{color:#fff}
+/* Legibility in every theme */
+option,optgroup{background-color:var(--panel);color:var(--ink)}
+::placeholder{color:var(--ink-2);opacity:1}
+.bslot .plus{color:var(--ink-3)}
+.vchart .ya,.vchart .xa{fill:var(--ink-2)}
+#valueView code,#completionView code,div.empty-msg code{color:var(--ink)}
+.theme-pick{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);flex-basis:100%;justify-content:flex-end}
+.theme-pick select{background:var(--field);color:var(--ink);border:1px solid var(--field-edge);border-radius:8px;padding:5px 8px;font:inherit;font-size:13px}
+
+/* ---------- Light themes ---------- */
+[data-theme=classic]{
+  --leather:#5a3a22; --leather-2:#3b2414; --page:#f6efdc; --page-2:#ece2c6; --page-edge:#cbb98f; --hole:#8a7556;
+  --sleeve:rgba(255,255,255,.55); --sleeve-edge:rgba(90,58,34,.25);
+  --ink:#2a1d12; --ink-2:#5a4632; --ink-3:#5f4c38; --accent:#8a4b12; --accent-rgb:138,75,18; --accent-hi:#a35c1c; --accent-lo:#6b390c;
+  --on-accent:#fff8ea; --good:#2f7a3d; --warn:#a4520f; --bad:#b3261e; --note:#9a4d0b;
+  --fg-rgb:60,40,20; --cap-rgb:250,244,228; --bar:rgba(246,239,220,.94);
+  --panel:#fbf6e9; --field:#fffaf0; --field-edge:#c9b58c; --field-on:#ead9b5; --field-hover:#a88d5e; --well:#efe6cf;
+  --bg:linear-gradient(180deg,#e9dfc6,#e2d5b6) fixed;
+  --cover-bg:radial-gradient(120% 140% at 30% 0,#7a5233 0,#5a3a22 45%,#3b2414 100%);
+  --font:Georgia,"Iowan Old Style","Palatino Linotype",serif; color-scheme:light;
+}
+[data-theme=classic] .cover{color:#f8ecd4;border-bottom:3px double #c9a66b;box-shadow:inset 0 -6px 12px rgba(0,0,0,.25)}
+[data-theme=classic] .cover .subtitle,[data-theme=classic] .cover .theme-pick{color:#e7d3ae}
+[data-theme=classic] .cover .stat{background:rgba(0,0,0,.25);border-color:rgba(255,230,190,.25)}
+[data-theme=classic] .cover .stat .k{color:#e0c9a0}[data-theme=classic] .cover .stat .s{color:#f0dfc0}
+[data-theme=classic] .cover .stat .v{color:#fff6e3}
+[data-theme=trainer]{
+  --page:#ffffff; --page-2:#f3f6fb; --page-edge:#c9d3e3; --hole:#b9c4d6;
+  --sleeve:rgba(230,236,246,.7); --sleeve-edge:rgba(30,50,90,.18);
+  --ink:#141c2e; --ink-2:#3c4860; --ink-3:#4b566c; --accent:#a50b25; --accent-rgb:165,11,37; --accent-hi:#c8102e; --accent-lo:#8a0a1f;
+  --on-accent:#fff; --good:#1d7a45; --warn:#b4530a; --bad:#b3261e; --note:#a04a0a;
+  --fg-rgb:20,40,80; --cap-rgb:255,255,255; --bar:rgba(255,255,255,.94);
+  --panel:#ffffff; --field:#ffffff; --field-edge:#b8c3d6; --field-on:#e3eaf6; --field-hover:#7d8aa3; --well:#eef2f8;
+  --bg:linear-gradient(135deg,#ffcb05 0 12%,transparent 12%) fixed, linear-gradient(180deg,#e8eef8,#dde5f2) fixed;
+  --cover-bg:linear-gradient(100deg,#1f5f9e 0,#1f5f9e 62%,#ffcb05 62%,#ffcb05 64%,#2f4a8f 64%);
+  --font:"Trebuchet MS","Segoe UI",Verdana,sans-serif; color-scheme:light;
+}
+[data-theme=trainer] .cover{color:#fff}
+[data-theme=trainer] .cover .subtitle,[data-theme=trainer] .cover .theme-pick{color:#fff}
+[data-theme=trainer] .cover .stat{background:rgba(255,255,255,.95);border:2px solid #ffcb05}
+[data-theme=trainer] h1{text-transform:uppercase;letter-spacing:2px;text-shadow:2px 2px 0 #1d3f7a}
+
+/* ---------- Dark themes ---------- */
+[data-theme=dark]{
+  --leather:#0b0b0d; --leather-2:#050506; --page:#17181b; --page-2:#131417; --page-edge:#2a2c31; --hole:#000;
+  --ink:#ececec; --ink-2:#b4b4b8; --ink-3:#9e9ea5; --accent:#8ab4f8; --accent-rgb:138,180,248; --accent-hi:#aecbfa; --accent-lo:#5e8fe0; --on-accent:#0b1220;
+  --bar:rgba(10,10,12,.9); --panel:#121316; --field:#0d0e10; --field-edge:#33353b; --field-on:#26282d; --field-hover:#55585f; --well:#08090a;
+  --bg:#0b0b0d; --cover-bg:none;
+}
+[data-theme=galaxy]{
+  --leather:#0b0f2a; --leather-2:#05061a; --page:rgba(24,22,60,.88); --page-2:rgba(16,14,44,.9); --page-edge:#3b3680; --hole:#05061a;
+  --ink:#f1efff; --ink-2:#c3bfee; --ink-3:#a8a4dc; --accent:#c6a8ff; --accent-rgb:198,168,255; --accent-hi:#dccbff; --accent-lo:#9b7dff; --on-accent:#140a33;
+  --bar:rgba(10,10,36,.85); --panel:#12113a; --field:#0b0a26; --field-edge:#3d3a7a; --field-on:#2a2766; --field-hover:#6762b8; --well:#08071d;
+  --bg:radial-gradient(1px 1px at 10% 20%,#fff 50%,transparent 51%) 0 0/220px 220px,radial-gradient(1px 1px at 60% 70%,#cfd8ff 50%,transparent 51%) 0 0/170px 170px,radial-gradient(1.5px 1.5px at 35% 45%,#fff 50%,transparent 51%) 0 0/310px 310px,radial-gradient(900px 500px at 80% 0,rgba(140,80,220,.35),transparent 70%),radial-gradient(800px 600px at 0 100%,rgba(40,120,220,.28),transparent 70%),#05061a;
+  --cover-bg:none;
+}
+[data-theme=galaxy] body{background-attachment:fixed}
+[data-theme=contrast]{
+  --leather:#000; --leather-2:#000; --page:#000; --page-2:#000; --page-edge:#fff; --hole:#fff;
+  --sleeve:#000; --sleeve-edge:#bdbdbd;
+  --ink:#fff; --ink-2:#fff; --ink-3:#e0e0e0; --accent:#ffeb3b; --accent-rgb:255,235,59; --accent-hi:#fff176; --accent-lo:#ffeb3b; --on-accent:#000;
+  --good:#7cff9a; --warn:#ffb74d; --bad:#ff8a80; --note:#ffd180;
+  --cap-rgb:0,0,0; --bar:#000; --panel:#000; --field:#000; --field-edge:#fff; --field-on:#333; --field-hover:#ffeb3b; --well:#000;
+  --bg:#000; --cover-bg:none;
+}
+[data-theme=contrast] .pocket::after{display:none}
+
+[data-theme=contrast] .pocket.missing{border:2px dashed #fff}
+[data-theme=contrast] :focus-visible{outline:3px solid #ffeb3b;outline-offset:2px}
+[data-theme=contrast] a{color:#ffeb3b}
+
+/* Holo foil: animated rainbow sheen over sleeves and page edges (owned cards only). */
+[data-theme=holo]{
+  --leather:#141826; --leather-2:#0b0d16; --page:#1d2233; --page-2:#191d2c; --page-edge:#4a4f78; --hole:#090b12;
+  --ink:#f2f4ff; --ink-2:#b9bfdc; --ink-3:#a0a7c8; --accent:#7ef9ff; --accent-rgb:126,249,255; --accent-hi:#b5fcff; --accent-lo:#ff7ae0; --on-accent:#0a1420;
+  --panel:#141826; --field:#0e111c; --field-edge:#3d4466; --field-on:#283053; --field-hover:#6a73a8; --well:#0a0c14;
+  --bg:radial-gradient(1000px 500px at 15% -10%,rgba(255,122,224,.18),transparent 60%),radial-gradient(900px 600px at 100% 10%,rgba(126,249,255,.14),transparent 60%),#0f1220 fixed;
+  --cover-bg:linear-gradient(115deg,rgba(255,0,128,.10),rgba(255,200,0,.10),rgba(0,255,170,.10),rgba(0,160,255,.12),rgba(200,0,255,.10));
+}
+[data-theme=holo] h1{background:linear-gradient(90deg,#ff7ae0,#ffd36e,#7effa8,#7ef9ff,#b48cff,#ff7ae0);background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:holo-pan 8s linear infinite}
+[data-theme=holo] .page{border-image:linear-gradient(120deg,#ff7ae0,#ffd36e,#7effa8,#7ef9ff,#b48cff) 1;border-radius:0}
+[data-theme=holo] .pocket:not(.missing):not(.empty)::after{
+  background:linear-gradient(115deg,transparent 20%,rgba(255,0,140,.16) 32%,rgba(255,220,0,.14) 40%,rgba(0,255,170,.14) 48%,rgba(0,170,255,.16) 56%,rgba(190,0,255,.14) 64%,transparent 78%);
+  background-size:250% 250%;mix-blend-mode:screen;animation:holo-pan 6s ease-in-out infinite alternate}
+[data-theme=holo] .progress i,[data-theme=holo] .reg .bar i{background:linear-gradient(90deg,#ff7ae0,#ffd36e,#7effa8,#7ef9ff,#b48cff)}
+@keyframes holo-pan{0%{background-position:0% 50%}100%{background-position:100% 50%}}
+@media (prefers-reduced-motion:reduce){[data-theme=holo] h1,[data-theme=holo] .pocket::after{animation:none!important}}
+/* Stat boxes outside the cover on light themes */
+[data-theme=classic] main .stat,[data-theme=trainer] main .stat{background:var(--panel);border-color:var(--field-edge)}
+[data-theme=trainer] .cover .stat .k{color:var(--ink-3)}
+[data-theme=trainer] .cover .stat .s{color:var(--ink-2)}
+[data-theme=trainer] .cover .stat .v{color:var(--ink)}
+.pgrm{color:var(--ink-2)}
