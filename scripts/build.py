@@ -67,6 +67,107 @@ SET_MAP = {
     "Pokemon Chinese 30th Celebration": {"ptcg": ["me55"], "dex": ["30th"], "complete": False, "stand_in": True},
 }
 
+# ---- automatic set mapping: any PriceCharting console name not in SET_MAP ----
+# English console names are matched by normalized name against TCGdex's and the Pokemon TCG API's set lists.
+# Japanese names: TCGdex lists Japanese sets under Japanese names, so this table maps PriceCharting's
+# English translation to the TCGdex Japanese set id. Add to it (or to SET_MAP) for anything missing.
+JA_SETS = {
+    "Expansion Pack": "PMCG1", "Jungle": "PMCG2", "Mystery of the Fossils": "PMCG3", "Rocket Gang": "PMCG4",
+    "Leaders' Stadium": "PMCG5", "Challenge from the Darkness": "PMCG6", "Gold, Silver, New World": "neo1",
+    "Crossing the Ruins": "neo2", "Awakening Legends": "neo3", "Darkness, and to Light": "neo4", "VS": "VS1",
+    "Web": "web1", "Expedition Expansion Pack": "E1", "The Town on No Map": "E2", "Wind from the Sea": "E3",
+    "Split Earth": "E4", "Mysterious Mountains": "E5", "Clash of the Blue Sky": "PCG2",
+    "Rocket Gang Strikes Back": "PCG3", "Golden Sky, Silvery Ocean": "PCG4", "Holon Research": "PCG6",
+    "Holon Phantom": "PCG7", "Offense and Defense of the Furthest Ends": "PCG9", "Bandit Ring": "XY7",
+    "PokeKyun Collection": "CP3", "Awakening Psychic King": "XY10", "Alolan Moonlight": "SM2L",
+    "Shining Legends": "SM3+", "GX Battle Boost": "SM4+", "Tag Bolt": "SM9", "GX Ultra Shiny": "SM8b",
+    "Double Blaze": "SM10", "Miracle Twins": "SM11", "Remix Bout": "SM11a", "Dream League": "SM11b",
+    "Alter Genesis": "SM12", "Tag All Stars": "SM12a", "Amazing Volt Tackle": "S4", "Shiny Star V": "S4a",
+    "Eevee Heroes": "S6a", "Blue Sky Stream": "S7R", "Fusion Arts": "S8", "25th Anniversary Collection": "S8a",
+    "VMAX Climax": "S8b", "Star Birth": "S9", "Battle Region": "S9a", "Dark Phantasma": "S10a", "Go": "S10b",
+    "Lost Abyss": "S11", "Incandescent Arcana": "S11a", "Paradigm Trigger": "S12", "VSTAR Universe": "S12a",
+    "Scarlet Ex": "SV1S", "Violet Ex": "SV1V", "Snow Hazard": "SV2P", "Clay Burst": "SV2D",
+    "Scarlet & Violet 151": "SV2a", "Ruler of the Black Flame": "SV3", "Raging Surf": "SV3a",
+    "Ancient Roar": "SV4K", "Future Flash": "SV4M", "Shiny Treasure ex": "SV4a", "Wild Force": "SV5K",
+    "Cyber Judge": "SV5M", "Crimson Haze": "SV5a", "Mask of Change": "SV6", "Night Wanderer": "SV6a",
+    "Stellar Miracle": "SV7", "Paradise Dragona": "SV7a", "Super Electric Breaker": "SV8",
+    "Terastal Festival": "SV8a", "Battle Partners": "SV9", "Heat Wave Arena": "SV9a",
+    "Glory of Team Rocket": "SV10", "Black Bolt": "SV11B", "White Flare": "SV11W", "Mega Brave": "M1L",
+    "Mega Symphonia": "M1S", "Inferno X": "M2", "Mega Dream ex": "M2a", "Nihil Zero": "M3",
+    "Ninja Spinner": "M4", "Abyss Eye": "M5", "Storm Emeralda": "M6", "Start Deck 100 Battle Collection": "MC",
+    "Triplet Beat": "SV1a", "20th Anniversary": "CP6",
+}
+# PriceCharting names that differ from the card databases' names (normalized key -> normalized key).
+SET_ALIASES = {
+    "scarletviolet151": "151", "expedition": "expeditionbaseset",
+}
+# Multi-set PriceCharting groups (normalized key -> TCGdex ids).
+SET_GROUPS = {
+    "exlatiaslatios": ["tk-ex-latia", "tk-ex-latio"],
+    "pikachulibresuicune": ["tk-xy-p", "tk-xy-su"],
+}
+# Subsets printed inside a main set; their cards are listed under the main set on PriceCharting.
+SUBSET_SUFFIXES = ("Trainer Gallery", "Galarian Gallery", "Shiny Vault", "Classic Collection", "Unown Collection")
+LANG_PREFIX = {"Japanese": "ja", "Chinese": "zh", "Korean": "ko", "French": "fr", "German": "de",
+               "Italian": "it", "Spanish": "es", "Portuguese": "pt"}
+
+def set_key(name):
+    """Comparison key for a set name: lowercase ASCII letters/digits only, no 'pokemon', '&'/'and'/'vs' dropped."""
+    s = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode().lower()
+    s = re.sub(r"\bpok[ae]mon\b", " ", s).replace("&", " ")
+    s = re.sub(r"\b(and|vs|the)\b", " ", s)
+    return re.sub(r"[^a-z0-9]", "", s)
+
+_catalogs = {}
+def set_catalogs():
+    """TCGdex English set list and the Pokemon TCG API set list (cached; the API list is optional)."""
+    if not _catalogs:
+        _catalogs["dex"] = get_json("https://api.tcgdex.net/v2/en/sets", "tcgdex_sets_en.json", max_age=7 * 86400) or []
+        d = get_json("https://api.pokemontcg.io/v2/sets?pageSize=250&select=id,name", "ptcg_sets.json", max_age=30 * 86400, tries=2)
+        _catalogs["ptcg"] = (d or {}).get("data", [])
+    return _catalogs["dex"], _catalogs["ptcg"]
+
+def resolve_set(console):
+    """Mapping (same shape as SET_MAP values) for a PriceCharting console name, or None."""
+    name = re.sub(r"^Pokemon\s+", "", console).strip()
+    first = name.split(" ", 1)[0]
+    if first in LANG_PREFIX:
+        rest = name.split(" ", 1)[1] if " " in name else ""
+        jid = {set_key(k): v for k, v in JA_SETS.items()}.get(set_key(rest)) if first == "Japanese" else None
+        return {"dex": [jid], "lang": "ja", "complete": False, "number_only": True, "auto": True} if jid else None
+    dex_sets, ptcg_sets = set_catalogs()
+    key = set_key(name)
+    key = SET_ALIASES.get(key, key)
+    dex_by = {}
+    for s in dex_sets:
+        dex_by.setdefault(set_key(s["name"]), s)
+    mc = re.fullmatch(r"mcdonalds(?:collection)?(\d{4})", key)
+    if mc:
+        key = "mcdonaldscollection" + mc.group(1)
+    if key in SET_GROUPS:
+        ids = SET_GROUPS[key]
+    elif key in dex_by:
+        main = dex_by[key]
+        ids = [main["id"]] + [s["id"] for s in dex_sets
+                              if any(s["name"] == f"{main['name']} {suf}" for suf in SUBSET_SUFFIXES)]
+    else:
+        ids = []
+    dex_name = {s["id"]: s["name"] for s in dex_sets}
+    ptcg_by = {}
+    for s in ptcg_sets:
+        ptcg_by.setdefault(set_key(s["name"]), s["id"])
+    ptcg = [ptcg_by[set_key(dex_name[i])] for i in ids if set_key(dex_name.get(i, "")) in ptcg_by]
+    if not ids:
+        if key in ptcg_by:  # only in the Pokemon TCG API
+            return {"ptcg": [ptcg_by[key]], "auto": True}
+        return None
+    cfg = {"dex": ids, "auto": True}
+    if ptcg:
+        cfg["ptcg"] = list(dict.fromkeys(ptcg))
+    if "promo" in key:
+        cfg.update(complete=False, strict_name=True)
+    return cfg
+
 # National Dex regions (4x4 Pokedex tabs). Hisui (899-905) has no dex range of its own and is shown in Galar.
 REGIONS = [
     {"key": "kanto", "name": "Kanto", "start": 1, "end": 151},
@@ -137,14 +238,14 @@ def build_species_matcher(species):
 
 UA = {"User-Agent": "virtual-binder/1.0 (personal collection viewer)"}
 
-def get_json(url, cache_name, max_age=None):
+def get_json(url, cache_name, max_age=None, tries=5):
     """GET a JSON URL, cached in data/cache/<cache_name>. max_age (seconds) refetches older cache files."""
     path = os.path.join(CACHE, cache_name)
     if os.path.exists(path) and (max_age is None or time.time() - os.path.getmtime(path) < max_age):
         with open(path) as f:
             return json.load(f)
     last = None
-    for attempt in range(5):
+    for attempt in range(tries):
         try:
             req = urllib.request.Request(url, headers=UA)
             with urllib.request.urlopen(req, timeout=60) as r:
@@ -443,12 +544,15 @@ def main():
     print(f"{len(rows)} rows in {csv_path}")
 
     pools = {}  # console -> {"cards": [...], "main": [...]}
+    unmapped, auto = [], []
     for console in sorted({r["console-name"] for r in rows}):
-        cfg = SET_MAP.get(console)
+        cfg = SET_MAP.get(console) or resolve_set(console)
         if not cfg:
-            print(f"  ? no set mapping for '{console}'", file=sys.stderr)
+            unmapped.append(console)
             pools[console] = {"cards": [], "main": None, "cfg": {}}
             continue
+        if cfg.get("auto"):
+            auto.append(f"{console} -> {', '.join(cfg.get('dex') or cfg.get('ptcg'))}")
         cards, main_list = [], []
         for sid in cfg.get("ptcg", []):
             lst = ptcg_set(sid) or []
@@ -717,6 +821,17 @@ def main():
     for e in low:
         m = e["match"]
         print(f"  LOW {m['confidence']}: {e['product']} | {e['console']} -> {m['id']} '{m['apiName']}' ({m['method']})")
+    if auto:
+        print(f"Set mapping: {len(auto)} set(s) matched automatically:")
+        for a in auto:
+            print(f"  {a}")
+    if unmapped:
+        n = sum(1 for e in entries if e["console"] in unmapped)
+        print(f"Set mapping: {len(unmapped)} PriceCharting set(s) aren't in TCGdex or the Pokemon TCG API, so their "
+              f"{n} row(s) use PriceCharting's product photo where it has one:")
+        for c in unmapped:
+            print(f"  {c}")
+        print("  To map one yourself, add it to SET_MAP at the top of scripts/build.py (see README, 'Sets that don't match').")
 
 if __name__ == "__main__":
     main()
