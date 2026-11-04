@@ -9,6 +9,7 @@ Pokemon TCG API (api.pokemontcg.io) with TCGdex (api.tcgdex.net) as the
 fallback, and writes:
     data/cards.json      full matched card data
     binder-data.js       the same data as a JS global, so index.html works over file://
+    data/history/<csv name>/<date>.json   a value snapshot (one per day) for the Value tab
 API responses are cached in data/cache/ (delete it to force a refresh).
 No API key or secret is needed. Prices come only from the CSV.
 """
@@ -327,6 +328,10 @@ def parse_args():
     ap = argparse.ArgumentParser(description="Build binder-data.js from a PriceCharting collection export.")
     ap.add_argument("csv", nargs="?", default=os.path.join(ROOT, "data", "collection.csv"),
                     help="PriceCharting export CSV (default: data/collection.csv)")
+    ap.add_argument("--no-history", action="store_true",
+                    help="don't save a value snapshot to data/history/ for this build")
+    ap.add_argument("--snapshot-date", metavar="YYYY-MM-DD",
+                    help="date to file this build's value snapshot under (default: today)")
     ap.add_argument("--no-types", action="store_true",
                     help="skip the per-card TCGdex lookups that add Pokemon types (used by My Binders filters)")
     return ap.parse_args()
@@ -341,6 +346,39 @@ def read_json_file(path, label):
     except (ValueError, OSError) as err:
         print(f"  ! ignoring {label}: {err}", file=sys.stderr)
         return None
+
+HISTORY = os.path.join(ROOT, "data", "history")
+
+def save_snapshot(csv_path, entries, date, generated):
+    """Write data/history/<csv name>/<date>.json (one per day; a same-day rebuild replaces it) and
+    return every snapshot summary for this CSV name, oldest first, plus the previous snapshot's rows."""
+    stem = re.sub(r"[^A-Za-z0-9._-]+", "_", os.path.splitext(os.path.basename(csv_path))[0]) or "collection"
+    folder = os.path.join(HISTORY, stem)
+    os.makedirs(folder, exist_ok=True)
+    items = {}
+    for e in entries:
+        items[e["key"]] = {"u": e["unitCents"], "v": e["valueCents"], "q": e["qty"], "pc": e["pcId"],
+                           "g": e["grade"], "n": e["product"], "s": e["console"]}
+    snap = {"version": 1, "date": date, "generated": generated, "source": os.path.basename(csv_path),
+            "totalCents": sum(e["valueCents"] for e in entries), "cards": sum(e["qty"] for e in entries),
+            "rows": len(entries), "items": items}
+    with open(os.path.join(folder, f"{date}.json"), "w") as f:
+        json.dump(snap, f, separators=(",", ":"))
+    snaps = []
+    for name in sorted(os.listdir(folder)):
+        if re.match(r"^\d{4}-\d{2}-\d{2}\.json$", name):
+            try:
+                with open(os.path.join(folder, name)) as f:
+                    snaps.append(json.load(f))
+            except (ValueError, OSError) as err:
+                print(f"  ! skipping history file {name}: {err}", file=sys.stderr)
+    snaps.sort(key=lambda x: x["date"])
+    pos = next(i for i, x in enumerate(snaps) if x["date"] == date)
+    prev = snaps[pos - 1] if pos > 0 else None
+    print(f"history: snapshot {date} saved in data/history/{stem}/ ({len(snaps)} snapshot(s))", file=sys.stderr)
+    return {"folder": stem, "current": date,
+            "series": [{k: x.get(k) for k in ("date", "totalCents", "cards", "rows")} for x in snaps],
+            "prev": {"date": prev["date"], "items": prev["items"]} if prev else None}
 
 def main():
     args = parse_args()
@@ -568,14 +606,22 @@ def main():
         print(f"binders.json: {len(default_binders)} default custom binders", file=sys.stderr)
 
     total_val = sum(e["valueCents"] for e in entries)
+    generated = time.strftime("%Y-%m-%d %H:%M %Z")
+    history = None
+    if not args.no_history:
+        date = args.snapshot_date or time.strftime("%Y-%m-%d")
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", date):
+            sys.exit(f"--snapshot-date must look like 2026-01-31, not {date!r}")
+        history = save_snapshot(csv_path, entries, date, generated)
     out = {
-        "generated": time.strftime("%Y-%m-%d %H:%M %Z"),
+        "generated": generated,
         "source": os.path.basename(csv_path),
         "totals": {"rows": len(rows), "cards": sum(e["qty"] for e in entries), "valueCents": total_val,
                    "matched": len(rows) - len(unmatched), "unmatched": len(unmatched)},
         "sets": sets, "entries": entries, "dex": dex, "regions": REGIONS,
         "defaultPicks": default_picks, "defaultBinders": default_binders,
         "hasTypes": any(e.get("types") for e in entries),
+        "history": history,
     }
     with open(os.path.join(ROOT, "data", "cards.json"), "w") as f:
         json.dump(out, f, indent=1)
