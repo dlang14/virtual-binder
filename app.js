@@ -125,7 +125,7 @@
   }
   function missingHTML(c) {
     return '<div class="pocket missing">' + (c.thumb ? '<img loading="lazy" src="' + esc(c.thumb) + '" alt="">' : "") +
-      '<div class="caption"><div class="n">' + esc(c.name) + '</div><div class="row"><span>#' + esc(c.number) + "</span><span>missing</span></div></div></div>";
+      '<div class="caption"><div class="n" title="' + esc(c.name) + '">' + esc(c.name) + '</div><div class="row"><span>#' + esc(c.number) + "</span><span>missing</span></div></div></div>";
   }
   function pagesHTML(items) {
     var out = "", pg = 0;
@@ -277,7 +277,7 @@
     var dexNo = pad3(k.dex), subTag = sub ? '<span class="tag subreg">' + esc(sub) + "</span>" : "";
     if (!k.cards.length) {
       return '<div class="pocket kslot missing"><img class="art" src="' + esc(k.art) + '" alt="">' + subTag +
-        '<div class="caption"><div class="n">' + esc(k.name) + '</div><div class="row"><span>' + dexNo + "</span><span>missing</span></div></div></div>";
+        '<div class="caption"><div class="n" title="' + esc(k.name) + '">' + esc(k.name) + '</div><div class="row"><span>' + dexNo + "</span><span>missing</span></div></div></div>";
     }
     var r = resolve(k), e = D.entries[r.idx], m = e.match;
     var img = imgTag(e.images, { alt: e.name, art: k.art });

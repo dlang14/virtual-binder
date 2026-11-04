@@ -147,7 +147,7 @@
       var k = DEX[x.dex - 1], owned = k.cards.length;
       return '<div class="pocket bslot kslot missing ph' + sel + '" draggable="true"' + at + '><img class="art" src="' + esc(k.art) + '" alt="">' + rm +
         '<span class="tag grade">#' + String(k.dex).padStart(3, "0") + "</span>" +
-        '<div class="caption"><div class="n">' + esc(k.name) + '</div><div class="row"><span>' + (owned ? "you own " + owned + " · drop one here" : "not owned yet") + "</span></div></div></div>";
+        '<div class="caption"><div class="n" title="' + esc(k.name) + '">' + esc(k.name) + '</div><div class="row"><span>' + (owned ? "you own " + owned + " · drop one here" : "not owned yet") + "</span></div></div></div>";
     }
     var i = entryIndex(x.k);
     if (i == null) {

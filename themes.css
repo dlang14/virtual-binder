@@ -5,7 +5,6 @@
 option,optgroup{background-color:var(--panel);color:var(--ink)}
 ::placeholder{color:var(--ink-2);opacity:1}
 .bslot .plus{color:var(--ink-3)}
-.caption{background:linear-gradient(0deg,rgba(var(--cap-rgb),.96) calc(100% - 16px),rgba(var(--cap-rgb),0))}
 .vchart .ya,.vchart .xa{fill:var(--ink-2)}
 #valueView code,#completionView code,div.empty-msg code{color:var(--ink)}
 .theme-pick{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--ink-2);flex-basis:100%;justify-content:flex-end}
@@ -68,7 +67,7 @@ option,optgroup{background-color:var(--panel);color:var(--ink)}
   --bg:#000; --cover-bg:none;
 }
 [data-theme=contrast] .pocket::after{display:none}
-[data-theme=contrast] .caption{background:#000}
+
 [data-theme=contrast] .pocket.missing{border:2px dashed #fff}
 [data-theme=contrast] :focus-visible{outline:3px solid #ffeb3b;outline-offset:2px}
 [data-theme=contrast] a{color:#ffeb3b}

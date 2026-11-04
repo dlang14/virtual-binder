@@ -298,3 +298,21 @@ main[hidden]{display:none}
 .ccard .cl a:hover{color:var(--accent)}
 #completionView code{background:rgba(var(--fg-rgb),.08);padding:1px 5px;border-radius:4px}
 .ccard .cimg .noimg a{margin-top:6px;font-size:11px;color:var(--ink-2)}
+/* Captions sit below the card image so the whole card stays visible.
+   Each pocket = image area (63:88) + a fixed caption strip (--caph) holding a badge line and up to 3 text lines. */
+.pocket{--caph:76px;aspect-ratio:auto;padding-bottom:var(--caph)}
+.g4 .pocket{--caph:72px}
+.pocket::before{content:"";display:block;aspect-ratio:63/88}
+.pocket img{inset:4px 4px auto 4px;height:calc(100% - var(--caph) - 8px)}
+.pocket .noimg{inset:8px 8px calc(var(--caph) + 8px) 8px}
+.pocket .art{inset:auto 10%;top:calc((100% - var(--caph)) * .14);height:calc((100% - var(--caph)) * .56)}
+.pocket::after{bottom:var(--caph)}
+.caption{top:auto;height:var(--caph);padding:22px 7px 4px;background:none;border-top:1px solid var(--sleeve-edge)}
+.tag.grade,.tag.qty,.tag.pin,.tag.subreg,.kslot[data-dex] .tag.subreg,.tag.pcmark{top:calc(100% - var(--caph) + 4px);bottom:auto}
+.tag.grade{left:7px}.tag.qty{right:7px}
+.tag.pin{left:64px;padding:2px 5px}
+.tag.pcmark{right:40px}
+.tag.subreg,.kslot[data-dex] .tag.subreg{left:50%;right:auto;transform:translateX(-50%)}
+.cyc{top:calc((100% - var(--caph)) * .4)}
+.bslot.empty .plus{margin-bottom:var(--caph)}
+@media (max-width:640px){.pocket{--caph:64px}.g4 .pocket{--caph:58px}.caption{padding-top:19px}}
