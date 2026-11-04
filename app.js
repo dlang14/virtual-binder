@@ -392,18 +392,36 @@
     };
     fr.readAsText(ev.target.files[0]);
   });
+  // ---- tabs: each tab owns one or more <main> views; feature scripts register more through VB.registerTab ----
+  var VIEWS = { sets: ["binder", "unmatched"], dex: ["dexView"] }, EXT = {};
   function showTab(tab, regionKey, scroll) {
+    if (!VIEWS[tab]) tab = "sets";
     document.querySelectorAll(".tabs button").forEach(function (x) { x.classList.toggle("on", x.getAttribute("data-tab") === tab); });
-    $("binder").hidden = tab !== "sets"; $("unmatched").hidden = tab !== "sets"; $("dexView").hidden = tab !== "dex";
+    Object.keys(VIEWS).forEach(function (t) { VIEWS[t].forEach(function (id) { if ($(id)) $(id).hidden = t !== tab; }); });
     document.querySelectorAll(".sets-only").forEach(function (x) { x.style.display = tab === "sets" ? "" : "none"; });
     if (tab === "dex") showRegion(regionKey || curReg.key, false);
+    else if (EXT[tab]) { EXT[tab].show(); try { history.replaceState(null, "", "#" + EXT[tab].hash); } catch (err) {} }
     else try { history.replaceState(null, "", "#"); } catch (err) {}
     if (scroll) window.scrollTo({ top: 0 });
   }
-  document.querySelectorAll(".tabs button").forEach(function (b) {
-    b.addEventListener("click", function () { showTab(b.getAttribute("data-tab"), null, true); });
+  document.querySelector(".tabs").addEventListener("click", function (ev) {
+    var b = ev.target.closest("button[data-tab]"); if (b) showTab(b.getAttribute("data-tab"), null, true);
   });
-  // #pokedex = Kanto (kept from the Kanto-only version), #pokedex-johto, #pokedex-hoenn, ...
-  var hm = /^#pokedex(?:-([a-z]+))?$/.exec(location.hash);
-  if (hm) showTab("dex", hm[1] && regByKey[hm[1]] ? hm[1] : REG[0].key, false);
+
+  // Shared helpers for the feature scripts (binders.js, ...), which load after this file.
+  window.VB = {
+    D: D, $: $, money: money, esc: esc, numKey: numKey, imgTag: imgTag, pcCls: pcCls, firstSrc: firstSrc, setZoomImg: setZoomImg,
+    DEX: DEX, byEntryKey: byEntryKey, byPcId: byPcId, setsByKey: setsByKey, showTab: showTab,
+    registerTab: function (tab, viewId, show, hash) { VIEWS[tab] = [viewId]; EXT[tab] = { show: show, hash: hash || tab }; }
+  };
+
+  // #pokedex = Kanto (kept from the Kanto-only version), #pokedex-johto, ...; other tabs use their own hash (#binders, ...).
+  // Runs on DOMContentLoaded, i.e. after the feature scripts below this one have registered their tabs.
+  function route() {
+    var hm = /^#pokedex(?:-([a-z]+))?$/.exec(location.hash);
+    if (hm) { showTab("dex", hm[1] && regByKey[hm[1]] ? hm[1] : REG[0].key, false); return; }
+    var h = location.hash.slice(1);
+    Object.keys(EXT).forEach(function (t) { if (EXT[t].hash === h) showTab(t, null, false); });
+  }
+  if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", route); else setTimeout(route, 0);
 })();

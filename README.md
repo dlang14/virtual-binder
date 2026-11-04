@@ -10,6 +10,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
   - Species you don't have appear as grayed-out official artwork.
   - Each region shows "X / N collected", a progress bar and a value total. An "All regions" summary adds them up.
 - **Swap the card in a slot:** click a Pokédex slot to see every card you own of that species, then choose **Use this card**. You can also cycle with the ‹ › arrows. Your choices are pinned, saved in the browser, and can be exported or imported as `picks.json`.
+- **My Binders:** make your own binders, like "Eeveelutions", "Charizards" or "Fire types". See [My Binders](#my-binders).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
 - **Prices from your export only:** nothing is re-priced. A PriceCharting row's price is the row total, so the per-card price is price ÷ quantity.
 
@@ -73,9 +74,34 @@ Species are found from the card name. The 1,025 species names come from [PokeAPI
 - **Export / Import picks:** use the buttons in any region header. Export downloads `picks.json`, covering every region, and Import loads one back. Use this to move picks between browsers.
 - **Permanent:** save an exported file as `data/picks.json` and rebuild. Those picks become the defaults in every browser. A choice made in a browser still takes priority.
 
+## My Binders
+
+The **My Binders** tab is for binders you lay out yourself.
+
+- **Create, rename and delete** binders from the bar at the top. Start empty, or start from a preset: Eeveelutions, Charizards, Pikachus, Kanto starters, or Fire types.
+- **Page layout:** choose 3×3 or 4×4 per binder. Switching keeps the cards in order and re-flows them onto the new page size. **Add page** adds an empty page; each page has a **delete page** link. **Close gaps** moves cards up to fill empty pockets.
+- **Card tray:** the panel on the right lists every card you own (one per CSV row). Filter it by name, set and Pokémon type, sort it, and hide the cards that are already in the binder. Switch the tray to **Unowned species** to place grayed-out artwork for Pokémon you don't have yet.
+- **Placing cards:**
+  - Drag a card from the tray into a pocket. Dropping on a filled pocket replaces it.
+  - Drag a pocket onto another pocket to move it there; if that pocket is filled, the two swap.
+  - Drag a pocket out of the pages (for example back onto the tray) to remove it, or use its **×** button.
+  - No drag and drop (touch screens, some trackpads)? Click a card, then click a pocket. Click a filled pocket, then another pocket, to move it.
+  - Double-click a card in a binder to zoom in.
+- **Quick fill** adds every matching card to the empty pockets, adding pages as needed, and skips cards already in the binder:
+  - **Species in a list:** for example `Eevee, Vaporeon, Jolteon, Flareon, Espeon, Umbreon, Leafeon, Glaceon, Sylveon`. Names or National Dex numbers work. Options: one card per species (your most valuable), and grayed placeholders for species you don't own.
+  - **Name contains:** for example `Charizard`.
+  - **Pokémon type:** for example Fire. Types come from TCGdex (see below). If no card has a type, the option is hidden.
+- **Empty pockets** are fine and stay where you leave them. A pocket whose card is no longer in your export says so instead of disappearing.
+- **Saving:** binders save in the browser's `localStorage`, using the same stable row keys as Pokédex picks, so they survive rebuilds and new exports. If a row's details change in a new export, the pocket falls back to the same PriceCharting product.
+- **Export / Import:** **Export binders** downloads `binders.json`; **Import** loads one back and adds its binders (a binder with the same id is replaced). Save an exported file as `data/binders.json` and rebuild to make those binders the default in every browser. A browser that already has its own binders keeps them.
+
+### Pokémon types
+
+The build looks up each owned English card on TCGdex once (about one request per card, cached in `data/cache/dexcard_*.json`) to get its Pokémon type and whether it's a Trainer or Energy card. A first build of a few hundred cards takes about 30 seconds more. Japanese prints and rows that aren't in TCGdex have no type. Run `python3 scripts/build.py --no-types` to skip the lookups.
+
 ## Direct links
 
-`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions.
+`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions. `#binders` opens My Binders.
 
 ## Keep your data private
 
@@ -84,6 +110,7 @@ The files the build generates contain your collection and PriceCharting's prices
 - `binder-data.js`
 - `data/cards.json`
 - `data/picks.json`
+- `data/binders.json`
 - `data/cache/pc_*.json`
 
 PriceCharting's data is licensed for personal use, so **don't publish your generated files or your CSV**. The included `.gitignore` already excludes them, along with every `*.csv` except the sample. To share your binder, share screenshots instead.
@@ -92,7 +119,8 @@ PriceCharting's data is licensed for personal use, so **don't publish your gener
 
 ```
 index.html          the page
-app.js              rendering: set binder, Pokédex tabs, picks, image fallbacks
+app.js              rendering: set binder, Pokédex tabs, picks, image fallbacks, tab switching
+binders.js          My Binders tab
 styles.css          binder look
 scripts/build.py    CSV -> binder-data.js (Python standard library only)
 data/sample-collection.csv   made-up example rows to try the site
