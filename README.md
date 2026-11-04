@@ -12,6 +12,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
 - **Swap the card in a slot:** click a Pokédex slot to see every card you own of that species, then choose **Use this card**. You can also cycle with the ‹ › arrows. Your choices are pinned, saved in the browser, and can be exported or imported as `picks.json`.
 - **My Binders:** make your own binders, like "Eeveelutions", "Charizards" or "Fire types". See [My Binders](#my-binders).
 - **Value over time:** every build saves a snapshot of your collection's value, so the Value tab can chart it and list your biggest gainers and losers since the last export. PriceCharting doesn't keep that history for you. See [Value over time](#value-over-time).
+- **Set Completion:** pick any of TCGdex's English sets to see which cards you own, which you're missing (cheapest first, with TCGplayer market prices) and what it would cost to finish the set. See [Set Completion](#set-completion).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
 - **Prices from your export only:** nothing is re-priced. A PriceCharting row's price is the row total, so the per-card price is price ÷ quantity.
 
@@ -118,9 +119,38 @@ Each build saves a snapshot to `data/history/<csv name>/<date>.json`, for exampl
 
 Prices are only ever PriceCharting's prices from your exports; nothing is estimated between snapshots.
 
+## Set Completion
+
+The Set Completion tab has a search box covering every English set on [TCGdex](https://tcgdex.dev), with the sets you own listed first. For the set you pick, it shows:
+
+- how many of its cards you own, and the value of those cards
+- every missing card, cheapest first, with its TCGplayer market price (or the Cardmarket price in EUR when TCGplayer has none)
+- the cost to complete, which is the sum of the USD prices of the missing cards
+- links to each card on TCGplayer and PriceCharting
+
+Tick **Show the cards I own** to see the whole set. The tab remembers the last set you opened.
+
+By default, the page fetches set lists and prices from TCGdex's public API when you open a set. This works from `file://`. Results are cached in your browser for 3 days, and **Refresh prices** fetches them again. A large set takes a few seconds to load the first time.
+
+To bake sets into the page so they open instantly and work offline, precompute them at build time:
+
+```sh
+python3 scripts/build.py --sets owned          # every set you own at least one card from
+python3 scripts/build.py --sets sv03.5,base1   # specific TCGdex set ids
+python3 scripts/build.py --sets none           # go back to fetching in the browser
+```
+
+The build remembers your choice in `data/cache/completion_sets.json`, so later builds reuse it. Precomputed prices are refreshed when they're more than 3 days old.
+
+Limitations:
+
+- A card counts as owned only when the build matched it to a TCGdex card. Cards matched only through the Pokémon TCG API, and Japanese cards, aren't counted.
+- Prices are TCGdex's copies of TCGplayer and Cardmarket prices, not PriceCharting's. Cards with only a EUR price, or no price, are left out of the cost to complete. Very new sets often have no prices yet.
+- Precomputing all ~220 sets (about 24,000 cards) would take a long time, so the build only precomputes the sets you ask for.
+
 ## Direct links
 
-`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions. `#binders` opens My Binders and `#value` opens Value.
+`index.html#pokedex` opens Kanto. `#pokedex-johto`, `#pokedex-hoenn` and so on through `#pokedex-paldea` open the other regions. `#binders` opens My Binders, `#value` opens Value and `#set-completion` opens Set Completion.
 
 ## Keep your data private
 
@@ -142,6 +172,7 @@ index.html          the page
 app.js              rendering: set binder, Pokédex tabs, picks, image fallbacks, tab switching
 binders.js          My Binders tab
 value.js            Value tab (value over time)
+completion.js       Set Completion tab
 styles.css          binder look
 scripts/build.py    CSV -> binder-data.js (Python standard library only)
 data/sample-collection.csv   made-up example rows to try the site
