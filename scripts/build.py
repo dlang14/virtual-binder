@@ -310,10 +310,16 @@ def _pc_get(url, method="GET"):
         args += ["-H", f"{k}: {v}"]
     if method == "HEAD":
         args.append("-I")
-    out = subprocess.run(args + [url], capture_output=True, text=True).stdout
+    try:
+        # Read raw bytes and decode as UTF-8 ourselves: text=True would use the console code page
+        # (cp1252 on Windows), which can't decode every byte in a PriceCharting page.
+        raw = subprocess.run(args + [url], capture_output=True, timeout=60).stdout or b""
+    except (OSError, subprocess.SubprocessError):  # curl missing or hung
+        return 0, url, ""
+    out = raw.decode("utf-8", "replace")
     body, _, tail = out.rpartition("\n")
     code, _, final = tail.partition(" ")
-    return int(code or 0), final or url, body
+    return int(code) if code.isdigit() else 0, final or url, body
 
 def pc_photo(pc_id):
     """{'img': 1600px or 240px URL, 'thumb': 240px URL, 'page': product page} or {'img': None} when
