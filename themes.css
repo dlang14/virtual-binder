@@ -69,6 +69,7 @@ option,optgroup{background-color:var(--panel);color:var(--ink)}
 [data-theme=contrast] .pocket::after{display:none}
 
 [data-theme=contrast] .pocket.missing{border:2px dashed #fff}
+[data-theme=contrast] .ccard:not(.own){border-color:#fff}
 [data-theme=contrast] :focus-visible{outline:3px solid #ffeb3b;outline-offset:2px}
 [data-theme=contrast] a{color:#ffeb3b}
 
