@@ -26,3 +26,9 @@ __pycache__/
 
 # Theme screenshots
 theme-previews/
+
+# Pricing: API keys, and the resolved TCGplayer id per card (price cache lives in data/cache/ above)
+.env
+.env.*
+!.env.example
+data/tcgplayer_ids.json
