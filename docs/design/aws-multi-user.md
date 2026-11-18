@@ -1,10 +1,12 @@
 # Virtual Binder on AWS: a hosted, multi-user design
 
-Status: proposal. Written 2026-11-18. Nothing here is built yet.
+Status: proposal. Written 2026-11-18, updated the same day. Nothing here is built yet.
+
+**Decision (2026-11-18): the first release is invite-only, for friends.** Access is by invitation, and pricing runs on the **free JustTCG tier**. A paid JustTCG plan is scoped as a **future state** in [section 17](#17-future-state-paid-justtcg-plan) and is switched on by configuration, not a redesign.
 
 This document proposes taking Virtual Binder from "a PriceCharting export turned into a static page by a local Python script" to "a small hosted app where people sign in, keep their own collection, and see current per-condition prices". It is written against the code as it is today (`scripts/build.py`, `scripts/pricing/`) so most of the pricing and matching logic can move to Lambda as it stands.
 
-Figures for prices and quotas were checked against the vendors' public pages on 2026-11-18 where noted; everything marked **(verify)** was written from memory or inference and must be re-checked before it drives a decision. All cost numbers are estimates.
+Figures for prices and quotas were checked against the vendors' public pages on 2026-11-18 where noted (JustTCG numbers come from <https://justtcg.com/pricing> and <https://justtcg.com/docs/rate-limits>); everything marked **(verify)** was written from memory or inference and must be re-checked before it drives a decision. All cost numbers are estimates.
 
 ## Contents
 
@@ -23,7 +25,8 @@ Figures for prices and quotas were checked against the vendors' public pages on 
 13. [Migration from the static build](#13-migration-from-the-static-build)
 14. [Milestones](#14-milestones)
 15. [Risks](#15-risks)
-16. [Open questions](#16-open-questions)
+16. [Decisions and open questions](#16-decisions-and-open-questions)
+17. [Future state: paid JustTCG plan](#17-future-state-paid-justtcg-plan)
 
 ## 1. Goals and non-goals
 
@@ -35,11 +38,13 @@ Figures for prices and quotas were checked against the vendors' public pages on 
 4. **One price source: JustTCG**, by TCGplayer product ID and condition. The labelled PriceCharting fallback in the current build is dropped. A row with no usable price shows "no price" with a reason. Rows that could not be matched at import go to a user-facing **needs review** queue where the user can pick the right card or pin a TCGplayer ID by hand.
 5. **Cheap to run**: serverless, no always-on resources, roughly $1-3 a month of AWS spend at hobby scale (section 9).
 6. **Keep the local mode.** The offline `python3 scripts/build.py` flow keeps working for anyone who does not want an account.
+7. **Invite-only for now.** Only people the owner invites can sign in (section 6), and the whole system is sized for the free JustTCG tier (section 8): a small group of friends, with per-user caps so nobody starves the others. Going beyond that means the paid plan in section 17.
 
 ### Non-goals (for now)
 
 - Non-English cards (TCGplayer is English-only; the current build already skips them).
 - Graded cards (PSA/BGS/CGC): JustTCG's per-condition prices are for raw cards.
+- Open sign-up, a public launch, or any charging for access (these need the paid JustTCG plan, section 17).
 - Sealed product, other trading card games, a marketplace, trading, social features, shared or public collections.
 - A native mobile app. The site stays a responsive web app.
 - Real-time prices or intraday history. Prices refresh nightly at best (section 8).
@@ -81,7 +86,7 @@ The package was written to be independent of the CSV and the build, so most of i
 - Set mapping: `SET_MAP`, `JA_SETS`, `resolve_set`, `set_catalogs`, and the matching helpers `norm_num`, `norm_name`, `name_score`, `slot_key`. The scoring closure `best()` is currently nested inside `main()`, and `set_key`/`species_key` helpers sit alongside.
 - `parse_product` (splits `Name [Tag] #Number`, used for PriceCharting exports).
 - TCGdex and Pokemon TCG API access (`dex_set`, `dex_card`, `ptcg_set`) and `dex_twin`.
-- The view assembly (Pokédex species matching, sets, completion) used by the tabs. See open question 6.
+- The view assembly (Pokédex species matching, sets, completion) used by the tabs. See open question 5 (section 16).
 
 Dropped in the hosted app: `pc_photo` and the other PriceCharting site fetches, `pick_price` (the condition-blind TCGdex price used by Set Completion), and the history snapshot writer (replaced by per-user snapshots in DynamoDB).
 
@@ -296,7 +301,7 @@ HTTP API with a JWT authorizer on every route except `GET /health`. The caller's
 | POST | `/imports/{importId}/rows/{rowNo}/resolve` | resolve a row | `{"tcgplayerId", "printing"}` or `{"skip": true}` |
 | POST | `/imports/{importId}/commit` | write matched and confirmed rows to the collection | idempotent; returns counts |
 | POST | `/exports` | build an export | `{"format": "csv\|json"}` returns `{"exportId", "downloadUrl"}` (presigned GET, expires in minutes) |
-| GET | `/collection/view` | the binder view model for the tabs (see open question 6) | same shape the static page gets today as `window.BINDER_DATA` |
+| GET | `/collection/view` | the binder view model for the tabs (see open question 5) | same shape the static page gets today as `window.BINDER_DATA` |
 
 The "needs review" queue is simply `GET /imports/{id}/rows?state=needs_review` plus a persistent entry point in the UI. Rows stay resolvable after the rest of the import is committed.
 
@@ -332,10 +337,22 @@ sequenceDiagram
 - **JWT authorizer**: issuer `https://cognito-idp.<region>.amazonaws.com/<poolId>`, audience the app client ID. Cognito access tokens carry `client_id` rather than `aud`; HTTP API authorizers accept either **(verify against current docs)**.
 - **Token handling in the SPA**: keep the access and ID tokens in memory only. Keep the refresh token in `sessionStorage` or `localStorage` with a short validity (7 days), and refresh silently before expiry. There is no backend-for-frontend, so XSS is the main threat: strict Content-Security-Policy, no third-party scripts, no `innerHTML` with unescaped user text (the current code already escapes via `esc()`).
 - **Refresh token rotation is an Essentials/Plus feature, not Lite** (Cognito feature table, checked 2026-11-18). With Lite, a stolen refresh token is valid until it expires.
-- **Tier note (recommendation).** Cognito Lite and Essentials share the same free tier of 10,000 monthly active users for direct and social sign-in; above that Lite is about $0.0055 per MAU and Essentials about $0.015. At hobby scale both cost $0, and Essentials adds refresh-token rotation, passwordless and passkey sign-in, and the newer Managed Login. The design keeps the tier as a variable and defaults to what was asked for (Lite); **I recommend starting on Essentials** and revisiting only if the user base approaches 10,000 MAU. See open question 3.
+- **Tier note (recommendation).** Cognito Lite and Essentials share the same free tier of 10,000 monthly active users for direct and social sign-in; above that Lite is about $0.0055 per MAU and Essentials about $0.015. At hobby scale both cost $0, and Essentials adds refresh-token rotation, passwordless and passkey sign-in, and the newer Managed Login. The design keeps the tier as a variable and defaults to what was asked for (Lite); **I recommend starting on Essentials** and revisiting only if the user base approaches 10,000 MAU. See open question 2.
 - **Google IdP**: create an OAuth client in a personal Google Cloud project, add Cognito's `/oauth2/idpresponse` URL as a redirect URI, and pass the client ID and secret to OpenTofu as sensitive variables. The secret ends up in OpenTofu state, so the state bucket must be encrypted and tightly scoped (section 11).
 - **Callback and logout URLs** are exact-match allow-lists per environment. No wildcard redirect URIs.
 - **API calls use the access token.** The ID token is only used by the SPA to show the email.
+
+### Invite-only access
+
+For the first release nobody can create their own account.
+
+- **Self sign-up is off.** The user pool is created with `allow_admin_create_user_only = true`, and the app has no sign-up screen.
+- **Email invites.** The owner invites a friend with `aws cognito-idp admin-create-user` (or a tiny `scripts/invite.sh` wrapper). Cognito emails a temporary password; the friend sets a permanent one on first sign-in. Cognito's built-in email sender is enough at this size (daily send limit **(verify)**); switch to SES only if invites outgrow it.
+- **Google sign-in needs an allow-list too.** Admin-only creation covers the sign-up API, but a first-time federated (Google) sign-in can still create a user **(verify against current Cognito docs)**. So the pool gets a **pre sign-up Lambda trigger** that rejects any email not on the invite list. The list is a plain SSM parameter (`/virtual-binder/<stage>/invited_emails`, a comma-separated list, well inside the 4 KB limit for a friends-sized group), edited with the CLI. The trigger also enforces a hard cap on total users (`MAX_USERS`, default 10).
+- **Same email, one account.** Cognito can link a Google identity to an existing email user only through an explicit link call; to avoid duplicate accounts, the invite flow tells each friend to use one method (Google or email and password). Account linking is deferred **(verify)**.
+- **Revoking access.** Remove the email from the SSM list and run `admin-disable-user`. The user's data stays until the owner deletes the account (`DELETE /me` or an admin script).
+- **Free-tier fit.** The per-user caps in section 8 (priced cards, on-demand lookups, imports) are enforced even for friends, so one big collection cannot use up the shared JustTCG allowance.
+- **Google consent screen.** With a handful of known users the Google OAuth app can stay in "testing" mode with the friends added as test users (limited number of test users **(verify)**), which avoids public verification.
 
 ## 7. Import pipeline
 
@@ -426,15 +443,23 @@ Assumptions: 1,000 requests a month, 10% (100) held back for on-demand and retri
 
 A 250-row collection is about 250 pairs, which is about 2,060 lookups a month, about 103 requests: roughly a tenth of the free tier. So Free supports on the order of **8 collections of that size with no overlap**, more with overlap (popular cards are shared). With 20 cards per request the extra waste from partly full batches is at most one request per run.
 
+### Invite-only sizing on the free tier
+
+The decision is a small group of friends on the free key. The shared-cache design already helps (the same card at the same condition is one lookup for everyone), and these limits keep the total inside the 2,170-pair mixed-tier figure above:
+
+| Setting | Free-tier default | Meaning |
+| --- | --- | --- |
+| `MAX_USERS` | 10 | hard cap enforced by the pre sign-up trigger |
+| `MAX_PRICED_PAIRS_PER_USER` | 200 | distinct card+condition pairs a user can have auto-refreshed; entries beyond that show "price not tracked (limit)" until the user removes some or the cap is raised |
+| `ONDEMAND_PER_USER_PER_DAY` | 40 | lookups from adding cards or pressing refresh |
+| `IMPORTS_PER_USER_PER_DAY` | 3 | with the file limits from section 7 |
+| daily planner cap | 60% of the day's remaining requests, never above 80 of 100 | the rest is held for on-demand fetches and retries |
+
+Worst case is 10 users x 200 pairs = 2,000 pairs with no overlap, which is under the 2,170 estimate; real collections overlap, so actual use will be lower. If a friend needs more than 200, raise their cap only after checking the monitoring metrics (section 17.3, item 8). The terms question still applies: the free tier is for personal, non-commercial use, and sharing with friends at no charge is the intended edge of that, so confirm with JustTCG if the group grows or anything is charged (section 15).
+
 ### When to go paid
 
-| Trigger | Move to |
-| --- | --- |
-| going public, or any commercial use (Terms) | Starter, regardless of size |
-| more than about 2,000 distinct owned pairs on the tiered mix (roughly 8-10 average collections), or tail pairs going stale beyond a week | Starter |
-| more than about 100,000 distinct pairs on the tiered mix | Professional (check headroom first) |
-
-Starter math (100 cards per request, 10,000 requests a month, 10% reserve so 9,000 planner requests): 900,000 lookups a month, which is about **30,000 pairs refreshed daily** or about **108,000 pairs on the tiered mix**. At $19 a month that is the dominant line in the budget, far above AWS. Professional ($49) has 5x the requests: about 150,000 pairs daily or about 540,000 on the mix. **Starter and above allow 100 cards per request, so `JustTcgClient` needs a configurable batch size.**
+Moving to a paid plan is **future state**, scoped in [section 17](#17-future-state-paid-justtcg-plan), including the exact upgrade triggers. In short: any opening up beyond invited friends, any charging, or sustained use above about 80% of the free allowance.
 
 ## 9. Cost estimate
 
@@ -455,10 +480,10 @@ Usage assumptions per active user per month: 300 API calls (20 sessions, about 1
 | CloudWatch Logs (14-day retention) and 2 alarms | $0.25 | $0.30 | $0.50 | alarms about $0.10 each **(verify)** |
 | **AWS subtotal** | **about $0.80** | **about $0.90** | **about $2.00** | |
 | Domain registration (outside AWS, or Route 53 Domains) | about $1.10 | about $1.10 | about $1.10 | roughly $13 a year for a `.com` **(verify)** |
-| JustTCG | $0 (Free, personal) | $0 (Free; see risks) | $19 (Starter) | by far the largest line once public |
+| JustTCG | $0 (Free, invite-only) | $0 (Free, if kept within the section 8 caps) | $19 (Starter, future state, section 17) | by far the largest line once public |
 | **Total** | **about $2** | **about $2** | **about $22** | |
 
-Data transfer out from CloudFront and API Gateway is a few MB per user per month, which is inside the CloudFront free allowance and a rounding error for API Gateway. Things that would break the "$1-3" claim: adding a NAT gateway, a VPC endpoint, WAF (about $5 a month plus rule fees), Cognito Plus, Secrets Manager rotation, or DynamoDB provisioned capacity left on. Add an AWS Budgets alert at $5 and $15 (the first two budgets are free **(verify)**).
+Data transfer out from CloudFront and API Gateway is a few MB per user per month, which is inside the CloudFront free allowance and a rounding error for API Gateway. Column A and B (a handful of invited friends) are the realistic first-release cost; column C is the future state. Things that would break the "$1-3" claim: adding a NAT gateway, a VPC endpoint, WAF (about $5 a month plus rule fees), Cognito Plus, Secrets Manager rotation, or DynamoDB provisioned capacity left on. Add an AWS Budgets alert at $5 and $15 (the first two budgets are free **(verify)**).
 
 ## 10. Security
 
@@ -545,7 +570,7 @@ flowchart LR
 
 ## 13. Migration from the static build
 
-1. **The local mode stays.** `python3 scripts/build.py data/collection.csv` keeps working with the same inputs and the same page. Local mode keeps its own pricing options (`--pricecharting-only`, the JustTCG key in `.env`). Whether the labelled PriceCharting fallback stays in local mode is open question 7; the hosted app never has it.
+1. **The local mode stays.** `python3 scripts/build.py data/collection.csv` keeps working with the same inputs and the same page. Local mode keeps its own pricing options (`--pricecharting-only`, the JustTCG key in `.env`). Whether the labelled PriceCharting fallback stays in local mode is open question 6; the hosted app never has it.
 2. **Shared code, not forked code.** M0 moves the pricing package and the extracted matching code under `backend/shared/`. `build.py` imports from there. Tests run against the shared package for both modes.
 3. **A data-source seam in the frontend.** `data-source.js` returns the same shape the page uses today, either from the local `binder-data.js` or from `GET /collection/view`. The tabs keep working unchanged while data moves; this is the safest way to port the UI incrementally.
 4. **One-time import of an existing collection.** Add a small local command (`scripts/export_generic_csv.py`) that writes the generic CSV from the local build's results, including `tcgplayer_id`, `printing` and `condition` for every row. Uploading that file to the hosted import skips matching entirely and avoids spending any PkmnPrices credits. The user's local pinned IDs (`data/tcgplayer_ids.json`) are carried over through the same `tcgplayer_id` column. The user's collection data never needs to be in the repo or in CI.
@@ -560,13 +585,14 @@ Effort is rough focused-work days for one person.
 | Milestone | Scope | Effort |
 | --- | --- | --- |
 | **M0 Foundations** | extract matching code and shared package from `build.py`; repo layout; state bucket, OIDC roles, dev environment; CI for tests and plan; make `JustTcgClient` batch size configurable | 4 days |
-| **M1 Auth and shell** | Cognito (Google + email), HTTP API with JWT authorizer, `/me`, SST static site on the custom domain, SPA login and logout with PKCE | 3 days |
+| **M1 Auth and shell** | Cognito (admin-created users, invite script, pre sign-up allow-list trigger, Google + email), HTTP API with JWT authorizer, `/me`, SST static site on the custom domain, SPA login and logout with PKCE | 3.5 days |
 | **M2 Collection and catalog** | `main` and `catalog` tables, collection CRUD, `/catalog/search`, add-card dialog, folders, export CSV and JSON | 5 days |
 | **M3 Pricing** | `prices` table, read-path price join, nightly planner with tiers and budget, on-demand queue, as-of and "no price, reason" in the UI, budget alarms | 5 days |
 | **M4 Import** | presigned upload, import worker with matching and confidence, review queue UI with manual pinning, commit, limits | 6 days |
 | **M5 Binder views** | `/collection/view` (or client assembly), port Pokédex, My Binders, Value and Set Completion to hosted data, picks and binders in DynamoDB | 6 days |
 | **M6 Hardening and prod** | prod account and domain, backups and deletion tests, per-user quotas, security review against section 10, budget alerts, runbook, the owner's one-time import and cutover | 4 days |
-| **Total** | | about 33 days, 6-8 weeks of evenings |
+| **Total (first release, invite-only)** | | about 33 days, 6-8 weeks of evenings |
+| **M7 Paid JustTCG plan (future state)** | section 17: plan switch, DynamoDB quota tracking, fair share, fallbacks, alarms | about 4 days, when triggered |
 
 M0-M3 deliver a usable hosted app for a single user (search, add, see prices). M4 is what makes it usable by someone with an existing collection. M5 is the longest tail because the tabs were built around a build-time data blob.
 
@@ -574,28 +600,154 @@ M0-M3 deliver a usable hosted app for a single user (search, add, see prices). M
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| **JustTCG free-tier terms and limits.** The free tier is for personal, non-commercial use; paid plans permit showing prices to users and caching, but not reselling raw data or building a competing price API. 100 requests a day and 1,000 a month cap growth | A public multi-user app on the free key could breach the terms or run dry mid-month | Read the full Terms (not just the pricing page) before inviting anyone outside a small private circle; budget Starter ($19) for public launch; only return prices joined to the caller's own entries; budget counter, tiers and a monthly reserve (section 8). Ask JustTCG directly if unsure |
+| **JustTCG free-tier terms and limits.** The free tier is for personal, non-commercial use; paid plans permit showing prices to users and caching, but not reselling raw data or building a competing price API. 100 requests a day and 1,000 a month cap growth | Inviting friends is at the edge of "personal"; a public or charged app on the free key would breach the terms or run dry mid-month | Keep it invite-only with `MAX_USERS` and per-user caps (section 8); read the full Terms (not just the pricing page) and ask JustTCG if unsure; move to a paid plan before any public launch or charging (section 17); only return prices joined to the caller's own entries |
 | **Single price vendor.** One API, one small company | Outage or terms change stops all pricing | Prices are cached for at least a day; the UI shows as-of dates; the price reader is behind the `ProviderError` boundary so a second source (for example PkmnPrices, already integrated for ID lookup) could be added |
 | **TCGdex ID gaps.** In a real import of a roughly 250-row collection about one row in five had no TCGplayer ID in TCGdex (mostly promos and brand-new sets) and needed the PkmnPrices rescue; a handful still needed manual pinning | Imports end with a visible needs-review queue; The PkmnPrices daily allowance is shared **(verify its limits)** | Shared `RESOLVE#` cache so each card is rescued once for everyone; deferred-lookup state; manual pin UI; `tcgplayer_id` column in generic CSV |
 | **Special variants** (jumbo, stamped, pattern and promo variants) are separate TCGplayer products the sources cannot tell apart | Those cards get "no price" | Manual pin to a product ID; keep the rule that variants are never guessed |
-| **Cognito Lite limits.** No refresh token rotation, no passkeys or passwordless, classic Hosted UI only (tier table checked 2026-11-18) | Weaker session security for a public app | Prefer Essentials, which is also free up to 10,000 MAU (open question 3); short refresh validity; strict CSP |
-| **Cognito/IdP configuration drift**: redirect URIs, Google OAuth consent screen verification for public use | Sign-in outage | Exact-match URLs in OpenTofu per environment; Google app in "testing" mode caps users, so plan the consent-screen publishing step before inviting people |
+| **Cognito Lite limits.** No refresh token rotation, no passkeys or passwordless, classic Hosted UI only (tier table checked 2026-11-18) | Weaker session security for a public app | Prefer Essentials, which is also free up to 10,000 MAU (open question 2); short refresh validity; strict CSP |
+| **Cognito/IdP configuration drift**: redirect URIs, Google OAuth consent screen (testing mode is fine while invite-only; verification is needed before a public launch) | Sign-in outage | Exact-match URLs in OpenTofu per environment; Google app in "testing" mode caps users, so plan the consent-screen publishing step before inviting people |
 | **Cost surprises** | A NAT gateway, WAF, Cognito Plus, log volume, or a runaway Lambda loop could multiply the bill | No VPC; reserved concurrency on workers; log retention 14 days; Budgets alerts at $5 and $15; per-user and global quotas |
-| **Abuse of the shared quotas** (one user burning the import or refresh allowance) | Everyone else gets stale or deferred prices | Per-user daily counters; invite-only sign-up in the first phase |
+| **Abuse of the shared quotas** (one user burning the import or refresh allowance) | Everyone else gets stale or deferred prices | Per-user daily and priced-pair caps; invite-only sign-up with a user cap |
 | **Data loss or privacy**: collections are personal data | Trust and legal exposure | PITR, deletion protection, full export, account deletion, short log retention, privacy note in the app |
 | **Frontend port effort** (M5) is underestimated | Schedule slips | Data-source seam keeps the old tabs working while data moves; ship M0-M4 first |
 | **Two IaC tools** (SST and OpenTofu) | More moving parts, two kinds of state | Narrow contract (SSM parameters); SST owns only the static site; revisit and move the site into OpenTofu if it becomes a burden |
 
-## 16. Open questions
+## 16. Decisions and open questions
 
-1. **Audience and plan.** Is this for the owner and a few friends (invite-only, free JustTCG key, with the terms question) or open to the public (Starter plan, $19 a month, a privacy note)? This decides the JustTCG plan and when it must be paid.
-2. **Domain.** Which domain and hosted zone? A new Route 53 zone costs $0.50 a month; an existing one can host subdomains for `app.`, `api.` and `dev.`.
-3. **Cognito tier.** Lite as requested, or Essentials (free to 10,000 MAU, adds refresh-token rotation, passkeys and Managed Login)? This design recommends Essentials.
-4. **Accounts.** Separate dev and prod AWS accounts under a personal organization, or one account with two environments?
-5. **Sign-in methods.** Google plus email and password, or Google only (simpler, fewer password-reset cases)? Invite-only, or open sign-up?
-6. **Binder view assembly.** Compute the view model on the server (`GET /collection/view`, reuses the Python code from `build.py`, keeps `app.js` close to unchanged) or in the browser from API data (less backend, more JavaScript to port)? The recommendation here is server-side first.
-7. **Local mode and PriceCharting.** Keep the labelled PriceCharting fallback in the offline build, or remove it there too so both modes behave the same?
-8. **Cost basis and history.** Keep cost basis per card and the Value tab's history in the hosted app? Both are optional, and history needs the nightly per-user snapshot job.
-9. **IaC split.** Is SST for the site plus OpenTofu for the rest the right trade-off, or should the static site also live in OpenTofu (one tool, one state, slightly more boilerplate)?
-10. **Budgets.** Alert thresholds and who is notified; whether to hard-stop the refresh job at a spend or request ceiling.
-11. **Non-goals.** Is any item in the non-goals list needed for the first public version (for example graded cards)?
+### Decided
+
+1. **Audience and plan (decided 2026-11-18):** invite-only for friends for now, on the free JustTCG tier. A paid JustTCG implementation is scoped as future state in section 17.
+2. **Sign-in:** Cognito users are admin-created (email invite) and Google sign-in is allowed only for invited emails (section 6). There is no open sign-up.
+
+### Still open
+
+1. **Domain.** Which domain and hosted zone? A new Route 53 zone costs $0.50 a month; an existing one can host subdomains for `app.`, `api.` and `dev.`.
+2. **Cognito tier.** Lite as requested, or Essentials (free to 10,000 MAU, adds refresh-token rotation, passkeys and Managed Login)? This design recommends Essentials.
+3. **Accounts.** Separate dev and prod AWS accounts under a personal organization, or one account with two environments?
+4. **Both sign-in methods?** Keep email and password plus Google, or Google only for the friends group (fewer password resets)?
+5. **Binder view assembly.** Compute the view model on the server (`GET /collection/view`, reuses the Python code from `build.py`, keeps `app.js` close to unchanged) or in the browser from API data (less backend, more JavaScript to port)? The recommendation here is server-side first.
+6. **Local mode and PriceCharting.** Keep the labelled PriceCharting fallback in the offline build, or remove it there too so both modes behave the same?
+7. **Cost basis and history.** Keep cost basis per card and the Value tab's history in the hosted app? Both are optional, and history needs the nightly per-user snapshot job.
+8. **IaC split.** Is SST for the site plus OpenTofu for the rest the right trade-off, or should the static site also live in OpenTofu (one tool, one state, slightly more boilerplate)?
+9. **Alert contacts.** Budget alert thresholds, who is notified, and whether to hard-stop the refresh job at a spend or request ceiling.
+10. **Per-user pair cap.** Is 200 priced pairs per friend enough, or should a few heavy collectors get a higher cap?
+
+## 17. Future state: paid JustTCG plan
+
+This section scopes what changes when the app outgrows the free tier. Nothing here is needed for the invite-only first release, except the design choices that keep it cheap to switch later (plan table, configurable batch size, DynamoDB quota tracking). Plan facts below were read from the vendor's public pages on **2026-11-18**; re-check them before subscribing.
+
+Sources: pricing <https://justtcg.com/pricing>; limits <https://justtcg.com/docs/rate-limits>; response fields <https://justtcg.com/docs/response-format>; error codes <https://justtcg.com/docs/errors>.
+
+### 17.1 Plans and headline numbers
+
+| Plan | Price | Requests / month | Requests / day | Requests / minute | Cards per request | Support |
+| --- | --- | --- | --- | --- | --- | --- |
+| Free | $0 | 1,000 | 100 | 10 | 20 | basic |
+| **Starter** | **$19/mo + tax** (about $0.0019 per request) | 10,000 | 1,000 | 50 | 100 | basic |
+| Professional | $49/mo + tax (about $0.00098 per request) | 50,000 | 5,000 | 100 | 100 | priority |
+| Enterprise | $149/mo + tax | 500,000 | 50,000 | 500 | 200 | highest, plus priority routing |
+
+Other facts from the same pages:
+
+- One HTTP call is one request, whatever the batch size. Limits reset daily at 00:00 UTC and monthly on the billing date. A per-minute breach returns `429`; a monthly breach means upgrading to continue. The pricing FAQ says nothing is silently truncated and there are no surprise overage charges, so spend is a flat plan fee and exhausting the quota costs staleness, not money.
+- Annual billing is 10x the monthly price ($190, $490 or $1,490 a year plus tax). A 14-day money-back guarantee applies to paid plans. Upgrades take effect once payment is confirmed.
+- **Every paid tier carries a commercial license**: show prices to users, derive analytics, cache server-side with no retention limit while the subscription is active, combine with other sources. The boundary: no reselling the raw data as a feed and no competing price API. The free tier stays personal and non-commercial (details in Section 7 of their Terms, which this document has not reviewed in full **(verify)**).
+- The API reports usage in every response (`_metadata`: plan name, monthly and daily limits, used and remaining counts, per-minute limit) on the v1 API the code uses today. The v2 beta reports usage in `RateLimit` response headers instead **(verify before any v2 migration)**.
+- Documented errors: `401` bad or revoked key, `403` plan not active (`SUBSCRIPTION_REQUIRED`), `429` per-minute limit (`RATE_LIMIT_EXCEEDED`), and the codes `DAILY_LIMIT_EXCEEDED` and `REQUEST_LIMIT_EXCEEDED`. Retry guidance: exponential backoff with jitter from about 1 s up to about 30 s, honoring `Retry-After`. The existing `net.request_json` already does this for 429.
+
+**Batch size note.** The 20-card batch in the current code is the *free* tier's limit. Starter and Professional allow 100 cards per request and Enterprise 200, so the paid plan is cheaper per card, not just bigger. The batch size must come from the plan, not a constant.
+
+### 17.2 When to upgrade
+
+Upgrade when **any** of these holds:
+
+| Trigger | Threshold | Why |
+| --- | --- | --- |
+| **Audience or money.** The app opens beyond invited friends, has public sign-up, or charges anyone | immediately, before it happens | free tier is personal and non-commercial; the paid tiers carry the commercial license |
+| **Cards.** Distinct owned card+condition pairs | above about 1,700 for two weeks (80% of the 2,170-pair free capacity on the tiered mix) | tail prices start going stale past the planned intervals |
+| **Users.** Invited users | more than about 8-10 | the free tier supports about 8 average collections (section 8) |
+| **Request budget.** Monthly use | projected above 80% of 1,000 by day 20, or the 100-per-day cap reached on 3 or more days in a month | no headroom for retries or new imports |
+| **Freshness.** Share of on-demand lookups deferred ("price pending") | above 10% for a week | new cards are waiting too long for a first price |
+| **Wanting daily prices for everything.** | more than about 600 pairs | the free tier fits about 600 pairs refreshed daily |
+
+**Which tier.** Start on **Starter ($19/mo)**. At 100 cards per request it covers about 900,000 lookups a month after a 10% reserve, which is about 30,000 pairs refreshed daily or about 108,000 pairs on the tiered mix (section 8). Rough sizing, assuming 250 priced pairs per user and no overlap between users (a worst case; overlap helps):
+
+| Users | Pairs | Lookups per month (tiered, 8.3 per pair) | Requests per month at 100 per request | Plan |
+| --- | --- | --- | --- | --- |
+| 100 | 25,000 | about 207,000 | about 2,100 | Starter |
+| 400 | 100,000 | about 830,000 | about 8,300 | edge of Starter (9,000 planner requests after reserve); plan for Professional |
+| 1,000 | 250,000 | about 2,075,000 | about 20,750 | Professional (45,000 planner requests after reserve) |
+
+Professional ($49) is the next step for more than about 80,000 pairs, or if priority support matters. Starter's 1,000 requests a day and 50 a minute are not a constraint at this scale (the nightly run uses well under 100 requests). Enterprise only matters past hundreds of thousands of pairs.
+
+**Cost.** Starter adds $19 a month ($190 a year, saving two months) on top of about $2 of AWS, so a 100-user deployment is about $21 a month, or about $0.21 per user. Subscribe monthly first, then switch to annual once usage is stable (the pricing page says a monthly plan can be switched to annual at any time). Tax is added at checkout.
+
+### 17.3 Architecture changes
+
+```mermaid
+flowchart LR
+    CFG["SSM: justtcg/plan<br/>free or starter or professional"] --> PLN["PLANS table in code<br/>batch size, daily, monthly,<br/>per-minute, reserve"]
+    KEY["SSM SecureString<br/>justtcg/api_key"] --> CLI["JustTcgClient"]
+    PLN --> PLAN["price-refresh planner"]
+    PLAN --> BUD[("prices table<br/>META#BUDGET day and month")]
+    BUD -- "reserve n requests<br/>(conditional ADD)" --> PLAN
+    PLAN --> CLI
+    OND["price-ondemand worker<br/>fair-share caps"] --> BUD
+    OND --> CLI
+    CLI -- "x-api-key" --> JT(["JustTCG"])
+    JT -- "_metadata: remaining" --> BUD
+    CLI -- "quota or error" --> FB["fallback: serve cached price<br/>with stale flag"]
+    BUD --> CW["CloudWatch metrics and alarms"]
+    CW --> SNS["SNS email"]
+```
+
+1. **Config switch, free vs paid.** One OpenTofu variable `justtcg_plan` (`free` default, `starter`, `professional`, `enterprise`) writes the plain SSM parameter `/virtual-binder/<stage>/justtcg/plan`. The code carries a `PLANS` table (limits from section 17.1, cards per request, reserve percent, tier intervals, per-user caps). Lambdas read the parameter at cold start and cache it for a few minutes, so changing plans needs no code change or redeploy. On every JustTCG response the client compares the reported plan and limits (`_metadata`) with the table; a mismatch logs a warning and the reported limits win, so the table cannot silently drift from reality.
+2. **Key storage.** Unchanged and stays outside the repo and OpenTofu state: SSM SecureString `/virtual-binder/<stage>/justtcg/api_key`, created with a placeholder and `ignore_changes`, value set with the AWS CLI, readable only by the refresh and on-demand roles. Upgrading may or may not issue a new key **(verify)**; if it does, update the parameter and nothing else. Never log the key; rotate it from the JustTCG dashboard if exposed.
+3. **Batching.** `JustTcgClient` takes `batch_size` from the plan (20 free, 100 Starter and Professional, 200 Enterprise) and keeps `chunk_unique_ids` so one product never appears twice in a batch. Fewer, larger requests are the main saving: the same nightly list takes one fifth of the requests on Starter.
+4. **Shared request budget in DynamoDB.** Each planner or on-demand run reserves requests *before* calling: `UPDATE ... ADD used :n` with the condition `used + :n <= :cap` on the day item `META#BUDGET#<yyyy-mm-dd UTC>`, plus a month item keyed by billing period (the billing day is a config value). After each response the real remaining counts from `_metadata` overwrite the estimates, so retries and requests made from outside (for example a dev machine) are accounted for. Per-minute pacing stays in the workers: SQS reserved concurrency of 1 and a fixed gap between calls (about 1.2 s at 50 a minute, 6.5 s at 10).
+5. **Fair share and throttling.** Per-user caps scale with the plan (for example 200 to 1,000 priced pairs, 40 to 300 on-demand lookups per day). When the due list is bigger than the day's budget, the planner orders by tier, then by how many users own the pair, then by age, so shared and hot cards win and a single big collection cannot starve others. The on-demand allowance grows from 20% to about 30% of the daily budget on paid plans, since new-card lookups are cheap in 100-card batches.
+6. **Caching changes.** Shorter intervals on paid plans (hot daily, warm daily, tail every 3 days; free stays daily, 3 days, weekly), driven by the same config. User-pressed refresh becomes cheap enough to allow for a small batch. Cached prices stay readable with their as-of time when the quota is exhausted. The 60-day expiry for pairs nobody owns stays. If the subscription is ever cancelled, the "no retention limit while the subscription is active" wording means the `prices` table should be treated as a cache to purge on downgrade **(verify in the Terms)**.
+7. **Fallback when quota is exhausted** (`DAILY_LIMIT_EXCEEDED`, `REQUEST_LIMIT_EXCEEDED`, repeated `429`, or `403 SUBSCRIPTION_REQUIRED`):
+   - stop calling JustTCG until the next reset (00:00 UTC for daily; billing date for monthly); never retry in a loop;
+   - keep serving the last cached JustTCG price with an "as of" date and a stale flag; this is the primary fallback;
+   - **do not substitute another source's price for the card's own condition.** TCGdex's price is condition-blind (the local build already uses it only for Set Completion estimates), and the PkmnPrices price coverage and terms for this use are unverified **(verify)**. If a second source is added later, it appears as a separate, clearly labelled "reference price (not your condition)" field, never in place of the condition price;
+   - new cards with no price yet show "price pending, next refresh after reset".
+8. **Monitoring and alarms.** Lambdas emit structured logs that CloudWatch turns into metrics (embedded metric format): requests used today and this month, remaining daily and monthly requests from `_metadata`, `429` and `403` counts, pairs due and refreshed, median and p95 price age, on-demand lookups deferred, fallback-served count. Alarms to an SNS email topic: monthly remaining under 20% before day 20; daily cap reached; any `401`, `403` or `INVALID_API_KEY`; no successful planner run in 26 hours; p95 price age above 7 days; and an AWS Budgets alert on total monthly spend (JustTCG's fee is not on the AWS bill, so a fixed alert at about $25 mainly protects against AWS-side surprises). Each custom alarm is about $0.10 a month **(verify)**.
+
+### 17.4 Code changes
+
+Small, and all of them can land before the upgrade (so the free tier benefits):
+
+- `justtcg.py`: `batch_size` parameter, default from the plan; return usage from `_metadata` (all fields in 17.1) and parse error codes.
+- A `PLANS` table plus a loader for the SSM plan parameter.
+- A DynamoDB `BudgetTracker` (reserve, settle, snapshot) replacing the per-run `max_requests` counter, with an in-memory version for the local build and tests.
+- Planner ordering and per-user caps (17.3 items 4 and 5).
+- Fallback and stale-flag handling in the read path and API (`price.stale`, `price.reason`).
+- Tests for quota exhaustion, reset boundaries (00:00 UTC), plan switch, and the batch size being used end to end.
+
+Estimated effort: about 4 days (milestone M7), most of it tests and the alarms.
+
+### 17.5 Migration steps
+
+1. Confirm the trigger in 17.2 and read the full Terms (commercial license, retention, downgrade behavior).
+2. Subscribe to Starter (monthly) on the JustTCG account the owner controls. Do not put the card or account details anywhere in the repo.
+3. If a new key is issued, update the SSM SecureString with the CLI.
+4. Set `justtcg_plan = "starter"` for the dev stage first, apply, and run the planner once. Check from `_metadata` that the plan name and limits match the `PLANS` table and that the batch size is 100.
+5. Dry run on prod: compute the due list and the request count without calling the API, and compare with the monthly budget.
+6. Apply `justtcg_plan = "starter"` on prod. Raise the per-user caps and tier intervals. Turn on the alarms in 17.3 item 8.
+7. Watch the first week: price age, remaining requests, deferred lookups.
+8. Only then open sign-up beyond the invited group, if that is the goal.
+
+Rollback: set `justtcg_plan = "free"`. Caps and intervals fall back to the free profile, the cached prices stay, and users beyond the free caps see "price not tracked" until they are removed or the plan is restored.
+
+### 17.6 Risks specific to the paid plan
+
+| Risk | Mitigation |
+| --- | --- |
+| A fixed $19 a month for an app with few users | Do not upgrade until a trigger in 17.2 fires; use annual billing only once usage is stable |
+| Terms details (commercial license scope, retention, downgrade handling) not fully reviewed here | Read Section 7 of the Terms before subscribing; ask JustTCG for clarification in writing |
+| Vendor changes prices, limits or API version (v1 to v2 has a different response shape and reports usage in headers) | The `PLANS` table and client reconcile with live `_metadata`; budget alarms; pin to the API version in use and plan a v2 migration separately |
+| Single price vendor: outage or account suspension (`403 SUBSCRIPTION_REQUIRED` after a failed payment) | Serve cached prices with an as-of date; alarm on any `403`; keep the payment method current |
+| Quota burned by a bug or abusive user | Reserve-before-call accounting, per-user caps, the daily cap at about 80% of the plan, and the monthly reserve |
+| API key leaked | SSM SecureString only, never logged, rotate from the dashboard; the alarm on `401` catches revocation |
+| Over-sizing: choosing Professional too early | Request counts, not user counts, decide the tier; Starter covers about 108,000 pairs on the tiered mix |
