@@ -155,7 +155,7 @@
     var e = D.entries[i], art = e.species && e.species[0] ? DEX[e.species[0] - 1].art : null;
     return '<div class="pocket bslot filled' + VB.pcCls(e.images) + sel + '" draggable="true"' + at + ' data-i="' + i + '">' +
       VB.imgTag(e.images, { alt: e.name, art: art, fbHtml: "<b>" + esc(e.name) + "</b>#" + esc(e.number) }) + rm +
-      VB.capHTML({ name: e.name, title: e.product, variant: e.variant, price: money(e.unitCents), pc: true, chips: [VB.gradeChip(e)],
+      VB.capHTML({ name: e.name, title: e.product, variant: e.variant, price: money(e.unitCents), pc: true, chips: [VB.gradeChip(e), VB.priceChips([e])],
         line2: e.console.replace(/^Pokemon /, "") + " #" + e.number }) + "</div>";
   }
   function stats(b) {
@@ -306,7 +306,7 @@
     var e = D.entries[+pk.getAttribute("data-i")];
     VB.setZoomImg(e.images, e.species && e.species[0] ? DEX[e.species[0] - 1].art : null);
     $("zoomInfo").innerHTML = "<h3>" + esc(e.name) + "</h3><div>" + esc(e.console.replace(/^Pokemon /, "")) + " · #" + esc(e.number) + (e.variant ? " · " + esc(e.variant) : "") + "</div><dl>" +
-      "<dt>Grade</dt><dd>" + esc(e.grade) + "</dd><dt>Quantity</dt><dd>" + e.qty + "</dd><dt>Per card</dt><dd>" + money(e.unitCents) + "</dd>" +
+      "<dt>Grade</dt><dd>" + esc(e.grade) + "</dd><dt>Quantity</dt><dd>" + e.qty + "</dd><dt>Per card</dt><dd>" + money(e.unitCents) + "</dd>" + VB.priceDetail([e]) +
       ((e.types || []).length ? "<dt>Type</dt><dd>" + esc(e.types.join(", ")) + "</dd>" : "") + "</dl>";
     ui.sel = null; render(); $("zoom").hidden = false;
   });

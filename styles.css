@@ -323,6 +323,9 @@ main[hidden]{display:none}
 .chip.subreg{background:#5b3f8c;color:#fff;border-color:#5b3f8c}
 .chip.pcchip{display:none;background:rgba(36,99,160,.92);color:#fff;border-color:transparent}
 .src-pc .chip.pcchip{display:inline-flex}
+.chip.wear{background:#b45309;color:#fff;border-color:#b45309}
+.chip.pcprice{background:#6b7280;color:#fff;border-color:#6b7280}
+.chip.noprice{background:transparent;color:#b91c1c;border-color:#b91c1c}
 .chip.pin{background:var(--accent);color:var(--on-accent);border-color:var(--accent);padding:0 4px}
 .pocket > .tag.pcmark{display:none!important}
 .pocket.missing .caption .n,.kslot.missing .caption .n,.kslot.missing .caption .d{color:var(--ink-3)}

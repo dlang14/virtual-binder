@@ -1,5 +1,5 @@
 // Value tab: collection value over time from the snapshots build.py saves in data/history/.
-// Every price here is PriceCharting's price from one of your exports; nothing is estimated.
+// Each snapshot holds the prices from that build (TCGplayer per condition, or PriceCharting where noted); nothing is estimated.
 (function () {
   "use strict";
   var VB = window.VB; if (!VB) return;
@@ -82,12 +82,13 @@
       (prevS ? stat("Since " + esc(fmtDate(prevS.date)), signed(cur.totalCents - prevS.totalCents), pct(cur.totalCents, prevS.totalCents) + " · cards " + (cur.cards - prevS.cards >= 0 ? "+" : "−") + Math.abs(cur.cards - prevS.cards), cls(cur.totalCents - prevS.totalCents)) : "") +
       (S.length > 2 ? stat("Since " + esc(fmtDate(first.date)), signed(cur.totalCents - first.totalCents), pct(cur.totalCents, first.totalCents) + " · first snapshot", cls(cur.totalCents - first.totalCents)) : "") +
       stat("Snapshots", S.length, S.length > 1 ? esc(fmtDate(first.date)) + " – " + esc(fmtDate(last.date)) : "one so far") + "</div>";
-    var html = '<section class="set"><div class="set-head"><h2>Value over time</h2><span class="meta">One snapshot per build day, saved in <code>data/history/' + esc(H.folder) + "/</code>. Prices are PriceCharting's from each export.</span></div>" + head;
+    var html = '<section class="set"><div class="set-head"><h2>Value over time</h2><span class="meta">One snapshot per build day, saved in <code>data/history/' + esc(H.folder) + "/</code>. Each snapshot keeps the prices from that build.</span></div>" + head;
     if (curIdx !== S.length - 1) html += '<div class="warn">This build was filed under ' + esc(cur.date) + ", but newer snapshots exist; changes are shown against " + (prevS ? esc(prevS.date) : "nothing") + ".</div>";
+    if (prevS && prevS.basis !== cur.basis) html += '<div class="warn">Prices changed source between ' + esc(fmtDate(prevS.date)) + " and " + esc(fmtDate(cur.date)) + " (" + (prevS.basis === "pricecharting" ? "PriceCharting" : "TCGplayer per condition") + " → " + (cur.basis === "pricecharting" ? "PriceCharting" : "TCGplayer per condition") + "), so the change below mostly reflects that switch, not the market.</div>";
     html += '<div class="vcharts"><div class="vbox"><h3>Total value</h3>' + chart(S.map(function (x) { return { date: x.date, y: x.totalCents }; }), function (c) { return "$" + Math.round(c / 100).toLocaleString("en-US"); }, "Total value over time") + "</div>" +
       '<div class="vbox"><h3>Card count</h3>' + chart(S.map(function (x) { return { date: x.date, y: x.cards }; }), function (n) { return Math.round(n).toLocaleString("en-US"); }, "Card count over time") + "</div></div>";
     if (S.length === 1 || !H.prev) {
-      html += '<div class="vnote"><b>This is your first snapshot.</b> Rebuild after your next PriceCharting export to see how your collection\'s value changed, your biggest gainers and losers, and which cards were added or removed. Rebuilding on the same day replaces that day\'s snapshot.</div>';
+      html += '<div class="vnote"><b>This is your first snapshot.</b> Rebuild after your next export (or a later day) to see how your collection\'s value changed, your biggest gainers and losers, and which cards were added or removed. Rebuilding on the same day replaces that day\'s snapshot.</div>';
     } else {
       var d = diff();
       var up = d.changed.filter(function (c) { return c.d > 0; }).sort(function (a, b) { return b.d - a.d; }).slice(0, 10);
