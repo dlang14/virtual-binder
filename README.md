@@ -1,10 +1,10 @@
 # Virtual Binder
 
-Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collection export into a Pokémon card binder you can browse in your browser. It's a small static site: no server, no account, no API keys. You run one Python script and open `index.html`.
+Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collection export into a Pokémon card binder you can browse in your browser. It's a small static site: no server, no account. You run one Python script and open `index.html`. Prices at each card's own condition need a free [JustTCG](https://justtcg.com) API key (see [Pricing](#pricing)); without one the site still works and shows the PriceCharting prices from your export.
 
 ## Features
 
-- **Set binder:** your cards in 3×3 binder pages, grouped by set in release order. Each pocket shows the card image, variant, grade, quantity and PriceCharting price. You can filter by set, sort by set order or value, and search. A **Show missing cards** toggle fills in the cards from a set you don't own as faded placeholders.
+- **Set binder:** your cards in 3×3 binder pages, grouped by set in release order. Each pocket shows the card image, variant, condition, quantity and price. You can filter by set, sort by set order or value, and search. A **Show missing cards** toggle fills in the cards from a set you don't own as faded placeholders.
 - **Region Pokédex tabs:** one 4×4 binder per region, from Kanto to Paldea (National Dex #1–1025), in dex order.
   - Each species shows your most valuable card of that Pokémon from any set.
   - Species you don't have appear as grayed-out official artwork.
@@ -14,13 +14,14 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
 - **Value over time:** every build saves a snapshot of your collection's value, so the Value tab can chart it and list your biggest gainers and losers since the last export. PriceCharting doesn't keep that history for you. See [Value over time](#value-over-time).
 - **Set Completion:** pick any of TCGdex's English sets to see which cards you own, which you're missing (cheapest first, with TCGplayer market prices) and what it would cost to finish the set. See [Set Completion](#set-completion).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
-- **Prices from your export only:** nothing is re-priced. A PriceCharting row's price is the row total, so the per-card price is price ÷ quantity.
+- **Prices at each card's own condition:** English cards are priced from TCGplayer market prices (via JustTCG) at the condition in your notes column (no note = Near Mint) and the right printing. A card with no exact price shows a labelled PriceCharting price or "no price", never another condition's. See [Pricing](#pricing).
 
 ## Requirements
 
 - Python 3.8 or newer, on macOS, Windows or Linux. The build uses only the standard library, so there's nothing to `pip install`. On Windows, see [Windows](#windows).
 - A modern browser. Chrome, Edge or Firefox are recommended; see [Saved picks](#saved-picks) for Safari.
 - An internet connection for the first build, which fetches set lists and images. After that, results are cached.
+- Optional but recommended: a free [JustTCG](https://justtcg.com) API key for per-condition prices (and a free [PkmnPrices](https://pkmnprices.com) key for a few promos). See [Pricing](#pricing).
 
 ## Quick start
 
@@ -75,6 +76,8 @@ You can also double-click `index.html` in File Explorer. Chrome, Edge and Firefo
 - `binder-data.js`: the same data as a JavaScript global, so the page works when opened straight from a file (`file://`)
 
 API responses are cached in `data/cache/`. Delete that folder to refresh after a new set comes out.
+
+Prices come from the pricing step described under [Pricing](#pricing).
 
 Supported sets are listed in `SET_MAP` at the top of `build.py`. To add a set, add its PriceCharting set name (the `console-name` column) with its Pokémon TCG API and TCGdex set ids. Rows that can't be matched are listed under **Not matched** at the bottom of the page, and their prices still count toward the total.
 
@@ -151,7 +154,7 @@ The build looks up each owned English card on TCGdex once (about one request per
 
 ## Value over time
 
-Each build saves a snapshot to `data/history/<csv name>/<date>.json`, for example `data/history/collection/2026-11-03.json`. A snapshot holds the date, total value, card and row counts, and each row's PriceCharting price, keyed by the same stable row key as picks and binders.
+Each build saves a snapshot to `data/history/<csv name>/<date>.json`, for example `data/history/collection/2026-11-03.json`. A snapshot holds the date, total value, card and row counts, and each row's per-card price and value, keyed by the same stable row key as picks and binders. A snapshot also records whether its prices were TCGplayer per condition or PriceCharting; when that changes between two snapshots, the Value tab says so, because the gainers and losers then mostly reflect the switch.
 
 - **One per day:** rebuilding on the same day replaces that day's snapshot, so the history has one point per day you rebuilt (in practice, one per export).
 - **Kept per CSV name:** building the sample (`sample-collection.csv`) never mixes with your own `collection.csv` history.
@@ -165,7 +168,7 @@ Each build saves a snapshot to `data/history/<csv name>/<date>.json`, for exampl
 - **Only one snapshot yet?** The tab says so. Rebuild after your next export to see changes.
 - **Options:** `--snapshot-date 2026-10-01` files a build under another date (useful for an older export you still have). `--no-history` skips saving a snapshot.
 
-Prices are only ever PriceCharting's prices from your exports; nothing is estimated between snapshots.
+Prices are only ever the ones each build got from its sources (see [Pricing](#pricing)); nothing is estimated between snapshots.
 
 ## Set Completion
 
@@ -196,11 +199,80 @@ Limitations:
 - Prices are TCGdex's copies of TCGplayer and Cardmarket prices, not PriceCharting's. Cards with only a EUR price, or no price, are left out of the cost to complete. Very new sets often have no prices yet.
 - Precomputing all ~220 sets (about 24,000 cards) would take a long time, so the build only precomputes the sets you ask for.
 
+## Pricing
+
+Each English card is priced at **its own condition and printing**, not with one blended number.
+
+**Condition.** The `notes` column of your PriceCharting export is read for wear: `LP`, `MP`, `HP`, `DMG`, `NM` or the long names (`Lightly Played`, `moderate play`, ...). No note means Near Mint. A note with no wear word (say, "bought at a show") is treated as Near Mint and listed in the build report. A note naming two levels ("LP/MP") gets no TCGplayer price rather than a guess. `SP` (slightly played) counts as LP, which is what TCGplayer calls it.
+
+**Printing.** Rows with no `[tag]` in the product name get the card's base printing (Normal, Holofoil, or Unlimited Holofoil on vintage cards, never 1st Edition). `[Holo]`, `[Reverse Holo]` and `[1st Edition]` pick that printing. Any other tag (`[Jumbo]`, `[Knockout Collection]`, `[Cosmos Holo]`, ...) is a different TCGplayer product that the price sources can't be trusted to tell apart, so those cards get no TCGplayer price unless you pin them (below). If a card's printing is still ambiguous, it gets no price and the report says why.
+
+**Where prices come from.**
+
+1. [TCGdex](https://tcgdex.dev/) supplies each card's TCGplayer product id.
+2. [PkmnPrices](https://pkmnprices.com) name search is the rescue for cards TCGdex has no id for (many promos and 30th Celebration cards). It's used once per card, and the id is remembered.
+3. [JustTCG](https://justtcg.com) gives the TCGplayer market price at each condition, by product id, in batches of 20 cards per request.
+
+**What a price can be.** Each row ends up in one of four states, shown on the card and in the zoom panel:
+
+| State | Meaning |
+| --- | --- |
+| priced | JustTCG / TCGplayer market price, USD, at the card's condition and printing |
+| PC price | no exact TCGplayer price, so PriceCharting's price from your CSV (row total ÷ quantity) is shown with a **PC price** label. It isn't adjusted for condition |
+| PC price (non-English) | Japanese, Chinese and other non-English cards aren't priced from TCGplayer; they show PriceCharting's price with the same label |
+| no price | no TCGplayer price and no PriceCharting price |
+
+PriceCharting stays only as that labelled last resort: its price is for an ungraded card of unspecified wear, so it can't stand in for a condition-specific price without saying so. The header splits the total ("N rows priced per condition · M on PriceCharting ($X)"), and `data/cards.json` keeps each row's original PriceCharting price (`pcUnitCents`) next to the new one. Nothing is ever converted from another currency, and a missing LP price never becomes the NM price.
+
+**Keys.** Put them in a `.env` file in the project folder (git ignores it) or in environment variables:
+
+```
+JUSTTCG_API_KEY=...
+PKMNPRICES_API_KEY=...
+```
+
+`.env.example` shows the format. Without `JUSTTCG_API_KEY` the build runs normally and every card keeps its labelled PriceCharting price. Keys are only ever sent in a request header, and never printed or saved.
+
+**Limits and caching.**
+
+- JustTCG's free tier allows 100 requests a day and 1,000 a month. A full refresh of about 250 cards is roughly 13 requests. The build stops after `--max-justtcg-requests` (default 30).
+- PkmnPrices allows 500 credits a day; each card is searched at most once (`--max-pkmnprices-requests`, default 100).
+- Prices are cached for 24 hours in `data/cache/justtcg_prices.json`, so a second build the same day makes no price requests. The resolved TCGplayer id for each card is saved in `data/tcgplayer_ids.json`, so later builds make no id lookups at all.
+- `--price-cache-only` prices from the cache and makes no price requests; `--pricecharting-only` skips the price APIs entirely.
+
+**Coverage report.** Every build prints how many rows were priced, how many are missing and why, which were skipped as non-English, any notes that were assumed, and how many API calls it made.
+
+**Pinning a card by hand.** To price a card the build can't (or to fix a wrong id), add it to `data/tcgplayer_ids.json`. The key is `pc:` plus the row's PriceCharting `id` from the CSV:
+
+```json
+{"cards": {"pc:1234567": {"id": "654321", "source": "manual", "printing": "Holofoil"}}}
+```
+
+`id` is the TCGplayer product id (the number at the end of the card's TCGplayer URL). `printing` is optional and must be one of `Normal`, `Holofoil`, `Reverse Holofoil`, `Unlimited`, `Unlimited Holofoil`, `1st Edition`, `1st Edition Holofoil`; it replaces the `[tag]` rule. Manual entries are never overwritten. Delete a card's entry from `misses` in that file to retry a failed lookup before the 7 days are up.
+
+**For a future search feature.** The pricing code lives in `scripts/pricing/` and knows nothing about the CSV:
+
+- `catalog.py`: `CardCatalog.search(name, set_name, number)` returns candidate cards with TCGplayer ids; `find_tcgplayer_id(CardRef)` resolves one card.
+- `service.py`: `PricingService.price_many([PriceItem(card, condition, printing_want)])` returns a `PriceResult` for each (price, source, condition, printing, as-of date, or the reason there's none).
+- `domain.py`: `Condition`, `Printing`, `parse_condition`, `parse_variant_tag`, `select_printing` and `PriceResult`.
+- `collection.py` is the only part that touches CSV rows, and `scripts/build.py` wires it all together.
+
+A search page would call `search()`, let the person pick a card, a condition and a printing, then call `price_many()` with one item.
+
+## Tests
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+The tests use made-up cards and make no network requests.
+
 ## Troubleshooting
 
 - **`CERTIFICATE_VERIFY_FAILED`** during a build: Python can't verify HTTPS certificates. On macOS with Python from python.org, run **Install Certificates.command** in your `Applications/Python 3.x` folder. On Windows, Python uses the Windows certificate store, so this usually means the network intercepts HTTPS (some work or school networks do); build from another network.
 - **"keeps failing; skipping it for the rest of this build"**: the Pokémon TCG API or TCGdex is down or rate-limiting you. The build carries on with the other source, and failed lookups aren't cached, so the next build tries again.
 - **Odd characters in the build output** (such as `\u30df`) on a Windows console: that's a Japanese card name the console can't display. It doesn't affect the site. Run `$env:PYTHONUTF8=1` in PowerShell first to see the real characters.
+- **Cards show "PC price" or "no price":** the card's `[tag]`, condition or id couldn't be priced exactly; hover the label or open the card to see why, and see the build's coverage report. A missing key or an exhausted JustTCG quota shows up there too.
 - **The page looks out of date:** reload with **Ctrl+Shift+R** (Windows and Linux) or **Cmd+Shift+R** (macOS).
 
 ## Direct links
@@ -217,6 +289,7 @@ The files the build generates contain your collection and PriceCharting's prices
 - `data/binders.json`
 - `data/history/`
 - `data/cache/pc_*.json`
+- `data/tcgplayer_ids.json` and `.env` (your API keys)
 
 PriceCharting's data is licensed for personal use, so **don't publish your generated files or your CSV**. The included `.gitignore` already excludes them, along with every `*.csv` except the sample. To share your binder, share screenshots instead.
 
@@ -232,6 +305,8 @@ styles.css          binder look
 themes.css          theme colors (Theme menu)
 themes.js           Theme menu and saved choice
 scripts/build.py    CSV -> binder-data.js (Python standard library only)
+scripts/pricing/    per-condition pricing: card catalog, pricing service, JustTCG client (see Pricing)
+tests/              unit tests (python3 -m unittest discover -s tests)
 data/sample-collection.csv   made-up example rows to try the site
 ```
 
@@ -240,6 +315,7 @@ data/sample-collection.csv   made-up example rows to try the site
 - [TCGdex](https://tcgdex.dev/): card data and images
 - [Pokémon TCG API](https://pokemontcg.io/): card data and images
 - [PokeAPI](https://pokeapi.co/): species names and official artwork, via the [PokeAPI sprites](https://github.com/PokeAPI/sprites) repo
+- [JustTCG](https://justtcg.com) and [PkmnPrices](https://pkmnprices.com): per-condition TCGplayer prices and product ids. Free API keys, optional.
 - [PriceCharting](https://www.pricecharting.com/): your collection export, prices, and product photos for cards the card databases don't have an image of. Photos are fetched politely, at most one request every 1.5 seconds, and cached.
 
 ## Disclaimer

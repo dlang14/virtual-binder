@@ -6,12 +6,13 @@ Usage:
 
 Reads data/collection.csv by default, matches each card against the
 Pokemon TCG API (api.pokemontcg.io) with TCGdex (api.tcgdex.net) as the
-fallback, and writes:
+fallback, prices every English card at its own condition (see scripts/pricing/), and writes:
     data/cards.json      full matched card data
     binder-data.js       the same data as a JS global, so index.html works over file://
     data/history/<csv name>/<date>.json   a value snapshot (one per day) for the Value tab
 API responses are cached in data/cache/ (delete it to force a refresh).
-No API key or secret is needed. Prices come only from the CSV.
+Matching needs no key. Prices need a free JustTCG key (JUSTTCG_API_KEY in the environment or in a gitignored .env);
+without one every card keeps its PriceCharting price from the CSV, labelled as such. See README, "Pricing".
 """
 import argparse, concurrent.futures, csv, json, os, re, subprocess, sys, time, unicodedata, urllib.error, urllib.request, urllib.parse
 from difflib import SequenceMatcher
@@ -25,6 +26,11 @@ for _stream in (sys.stdout, sys.stderr):
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CACHE = os.path.join(ROOT, "data", "cache")
 os.makedirs(CACHE, exist_ok=True)
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from pricing import (CardCatalog, IdRegistry, JustTcgClient, PricingService, TtlCache, PRICE_TTL)  # noqa: E402
+from pricing.collection import price_entries  # noqa: E402
+from pricing.net import get_keys  # noqa: E402
 
 # PriceCharting console-name -> where the cards live.
 #   ptcg: Pokemon TCG API set ids (first one is the "main" set used for the missing-card view)
@@ -506,6 +512,15 @@ def parse_args():
                     help="precompute Set Completion data (card lists + TCGdex market prices) for these TCGdex set ids, "
                          "comma-separated, or 'owned' for every English set you own, or 'none' to stop. Remembered "
                          "for later builds. Sets not precomputed are fetched by the page on demand.")
+    ap.add_argument("--pricecharting-only", action="store_true",
+                    help="don't call any price API: every card keeps its PriceCharting price from the CSV (labelled as such)")
+    ap.add_argument("--price-cache-only", action="store_true",
+                    help="price from the local cache only; make no price API calls (cards not in the cache show 'no price')")
+    ap.add_argument("--max-justtcg-requests", type=int, default=30, metavar="N",
+                    help="stop after N JustTCG requests in one build (default 30; the free tier allows 100 a day, 1,000 a month)")
+    ap.add_argument("--max-pkmnprices-requests", type=int, default=100, metavar="N",
+                    help="stop after N PkmnPrices searches in one build (default 100; the free tier allows 500 credits a day). "
+                         "Only cards TCGdex has no TCGplayer id for are searched, once each.")
     ap.add_argument("--no-types", action="store_true",
                     help="skip the per-card TCGdex lookups that add Pokemon types (used by My Binders filters)")
     return ap.parse_args()
@@ -535,7 +550,9 @@ def save_snapshot(csv_path, entries, date, generated):
                            "g": e["grade"], "n": e["product"], "s": e["console"]}
     snap = {"version": 1, "date": date, "generated": generated, "source": os.path.basename(csv_path),
             "totalCents": sum(e["valueCents"] for e in entries), "cards": sum(e["qty"] for e in entries),
-            "rows": len(entries), "items": items}
+            "rows": len(entries), "items": items,
+            # Where the prices came from. Older snapshots have no basis and were all PriceCharting.
+            "basis": "tcgplayer-condition" if any((e.get("price") or {}).get("state") == "priced" for e in entries) else "pricecharting"}
     with open(os.path.join(folder, f"{date}.json"), "w", encoding="utf-8") as f:
         json.dump(snap, f, separators=(",", ":"))
     snaps = []
@@ -551,8 +568,33 @@ def save_snapshot(csv_path, entries, date, generated):
     prev = snaps[pos - 1] if pos > 0 else None
     print(f"history: snapshot {date} saved in data/history/{stem}/ ({len(snaps)} snapshot(s))", file=sys.stderr)
     return {"folder": stem, "current": date,
-            "series": [{k: x.get(k) for k in ("date", "totalCents", "cards", "rows")} for x in snaps],
+            "series": [{**{k: x.get(k) for k in ("date", "totalCents", "cards", "rows")}, "basis": x.get("basis", "pricecharting")} for x in snaps],
             "prev": {"date": prev["date"], "items": prev["items"]} if prev else None}
+
+def price_rows(entries, pools, args):
+    """Run the pricing service over the matched rows. Returns the Coverage report (rows are updated in place)."""
+    keys = {} if args.pricecharting_only else get_keys(os.path.join(ROOT, ".env"))
+    if args.pricecharting_only:
+        print("pricing: --pricecharting-only, so no price API is called", file=sys.stderr)
+    else:
+        print("pricing: API keys present: " + (", ".join(sorted(keys)) or "none") + (
+            "" if "JUSTTCG_API_KEY" in keys else "  (no JUSTTCG_API_KEY: cards keep their labelled PriceCharting price)"), file=sys.stderr)
+    offline = args.price_cache_only
+    fetch = lambda url, name: get_json(url, name, max_age=7 * 86400 if name.startswith("dexsearch_") else None)
+    catalog = CardCatalog(fetch, None if offline else keys.get("PKMNPRICES_API_KEY"),
+                          TtlCache(os.path.join(CACHE, "pricing_search.json"), 7 * 86400), max_pkmn_requests=args.max_pkmnprices_requests)
+    provider = None if offline or "JUSTTCG_API_KEY" not in keys else JustTcgClient(keys["JUSTTCG_API_KEY"], args.max_justtcg_requests)
+    service = PricingService(catalog, IdRegistry(os.path.join(ROOT, "data", "tcgplayer_ids.json")),
+                             TtlCache(os.path.join(CACHE, "justtcg_prices.json"), PRICE_TTL), provider, offline=offline,
+                             disabled_reason="price APIs turned off (--pricecharting-only)" if args.pricecharting_only else None)
+
+    def tcgdex_id(e):
+        pool = pools.get(e["console"], {})
+        return dex_twin(e, pool) if pool.get("cfg", {}).get("lang", "en") == "en" else None
+
+    cov = price_entries(entries, service, tcgdex_id)
+    service.save()
+    return cov
 
 def main():
     args = parse_args()
@@ -724,6 +766,10 @@ def main():
     for e in no_img:
         print(f"  NO IMAGE: {e['product']} | {e['console']}", file=sys.stderr)
 
+    # Price every English row at its own condition and printing (JustTCG / TCGplayer); see scripts/pricing/.
+    coverage = price_rows(entries, pools, args)
+    print(coverage.format())
+
     # Pokedex views: every owned card per National Dex species, most valuable per card first.
     species = species_list()
     match_species = build_species_matcher(species)
@@ -824,6 +870,7 @@ def main():
         "source": os.path.basename(csv_path),
         "totals": {"rows": len(rows), "cards": sum(e["qty"] for e in entries), "valueCents": total_val,
                    "matched": len(rows) - len(unmatched), "unmatched": len(unmatched)},
+        "pricing": coverage.to_json(),
         "sets": sets, "entries": entries, "dex": dex, "regions": REGIONS,
         "defaultPicks": default_picks, "defaultBinders": default_binders,
         "hasTypes": any(e.get("types") for e in entries),

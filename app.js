@@ -88,9 +88,12 @@
   var costRows = D.entries.filter(function (e) { return e.costCents > 0; });
   var gain = costRows.reduce(function (a, e) { return a + e.valueCents - e.costCents; }, 0);
   var setCount = D.sets.length;
+  var PR = D.pricing || {};
   $("subtitle").textContent = "From PriceCharting export " + D.source + " · built " + D.generated;
   $("stats").innerHTML =
-    stat("Collection value", money(T.valueCents), "sum of PriceCharting prices") +
+    stat("Collection value", money(T.valueCents), PR.priced ?
+      PR.priced + " rows priced per condition (TCGplayer)" + (PR.fallback + PR.skipped + PR.none ? " · " + (PR.fallback + PR.skipped) + " on PriceCharting (" + money(PR.fallbackValueCents) + ")" +
+        (PR.none ? " · " + PR.none + " no price" : "") : "") : "PriceCharting prices (no price API key set)") +
     stat("Cards", T.cards.toLocaleString(), T.rows + " entries · " + setCount + " sets") +
     '<div class="stat mvp">' + (mvp.images.length ? '<img src="' + esc(mvp.images[0].thumb) + '" alt="">' : "") +
     '<div><div class="k">Most valuable card</div><div class="v">' + money(mvp.unitCents) + '</div><div class="s">' + esc(mvp.name) +
@@ -125,9 +128,39 @@
   }
   var chip = function (text, cls, title) { return '<span class="chip' + (cls ? " " + cls : "") + '"' + (title ? ' title="' + esc(title) + '"' : "") + ">" + text + "</span>"; };
   var gradeChip = function (e) { return e.graded ? chip(esc(e.grade), "graded") : ""; };
+
+  // ---- price provenance (build.py "Pricing"): which source and condition each price comes from ----
+  var WEAR = { NM: "Near Mint", LP: "Lightly Played", MP: "Moderately Played", HP: "Heavily Played", DMG: "Damaged" };
+  // Chips for a card's rows: its wear when it isn't Near Mint, and a label when the price isn't a TCGplayer price.
+  function priceChips(rows) {
+    var wear = {}, fb = 0, sk = 0, none = 0, out = [];
+    rows.forEach(function (e) {
+      var p = e.price || {};
+      if (p.cond && p.cond !== "NM") wear[p.cond] = 1;
+      if (p.state === "fallback") fb++; else if (p.state === "skipped") sk++; else if (p.state === "none") none++;
+    });
+    Object.keys(wear).forEach(function (w) { out.push(chip(esc(w), "wear", "Condition from your notes: " + WEAR[w])); });
+    if (fb) out.push(chip("PC price", "pcprice", "PriceCharting price, not adjusted for condition: no TCGplayer price for this exact condition and printing"));
+    if (sk) out.push(chip("PC price", "pcprice", "PriceCharting price: non-English cards aren't priced from TCGplayer"));
+    if (none) out.push(chip("no price", "noprice", "No price available for this card"));
+    return out.join("");
+  }
+  // "Price" lines for the zoom panel, one per row (rows can differ in condition or source).
+  function priceDetail(rows) {
+    var lines = rows.map(function (e) {
+      var p = e.price || {}, pre = rows.length > 1 ? "x" + e.qty + " · " : "";
+      if (p.state === "priced") {
+        return pre + money(e.unitCents) + " · " + esc(p.src) + " · " + esc(p.cond) + " " + esc(p.printing || "") + (p.asOf ? " · as of " + esc(p.asOf) : "") +
+          (p.stale ? " · <b>price not current</b>" : "");
+      }
+      if (p.state === "none") return pre + "<b>no price</b> · " + esc(p.reason || "");
+      return pre + money(e.unitCents) + " · <b>PriceCharting</b>, not condition-adjusted · " + esc(p.reason || "");
+    });
+    return "<dt>Price</dt><dd>" + lines.join("<br>") + "</dd>";
+  }
   function pocketHTML(p) {
     var cap = capHTML({ name: p.name, variant: p.variant, price: money(p.unitCents), pc: true,
-      chips: [gradeChip(p), p.qty > 1 ? chip("×" + p.qty, "qty") : ""],
+      chips: [gradeChip(p), priceChips(p.rows), p.qty > 1 ? chip("×" + p.qty, "qty") : ""],
       line2: "#" + p.number + (p.qty > 1 ? " · " + money(p.valueCents) + " total" : "") });
     var img = imgTag(p.images, { lazy: true, alt: p.name, fbHtml: "<b>" + esc(p.name) + "</b>#" + esc(p.number) + "<br>No image in the card databases yet" });
     return '<div class="pocket' + pcCls(p.images) + '" data-k="' + esc(p.key) + '">' + img +
@@ -209,7 +242,7 @@
     $("zoomInfo").innerHTML = "<h3>" + esc(p.name) + "</h3><div>" + esc(s ? s.name : p.set) + " · #" + esc(p.number) + (p.variant ? " · " + esc(p.variant) : "") + "</div><dl>" +
       "<dt>Grade</dt><dd>" + esc(p.grade) + "</dd>" +
       "<dt>Quantity</dt><dd>" + p.qty + "</dd>" +
-      "<dt>Per card</dt><dd>" + money(p.unitCents) + "</dd>" +
+      "<dt>Per card</dt><dd>" + money(p.unitCents) + "</dd>" + priceDetail(p.rows) +
       (p.qty > 1 || p.rows.length > 1 ? "<dt>Total</dt><dd>" + money(p.valueCents) + (p.rows.length > 1 ? " (" + p.rows.map(function (r) { return "x" + r.qty + " · " + money(r.valueCents); }).join(", ") + ")" : "") + "</dd>" : "") +
       (p.rows.some(function (r) { return r.notes; }) ? "<dt>Notes</dt><dd>" + esc(p.rows.map(function (r) { return r.notes; }).filter(Boolean).join(", ")) + "</dd>" : "") +
       (p.rows.some(function (r) { return r.folder; }) ? "<dt>Folder</dt><dd>" + esc(p.rows.map(function (r) { return r.folder; }).filter(Boolean).join(", ")) + "</dd>" : "") +
@@ -229,7 +262,8 @@
       un.map(function (e) { return '<tr><td class="uimg">' + (e.images && e.images.length ? '<span class="src-pc">' + imgTag(e.images, { lazy: true, alt: e.product }) + "</span>" : "") + "</td><td>" + esc(e.product) + "</td><td>" + esc(e.console.replace(/^Pokemon /, "")) + '</td><td class="r">' + e.qty + '</td><td class="r">' + money(e.valueCents) + "</td></tr>"; }).join("") +
       "</tbody></table>";
   }
-  $("foot").textContent = "Values are PriceCharting's prices from the export. Each row's price already covers every copy in it, so per-card price = row price ÷ quantity; nothing is re-priced here. Card images and set lists come from the Pokémon TCG API and TCGdex. " +
+  $("foot").textContent = "Prices are TCGplayer market prices from JustTCG at each card's own condition (from your notes: no note = Near Mint) and printing, per card. " +
+    "Where that exact price doesn't exist the card shows a labelled PriceCharting price from your export (the row price ÷ quantity, not condition-adjusted) or no price; nothing is converted or borrowed from another condition. Card images and set lists come from the Pokémon TCG API and TCGdex. " +
     (costRows.length ? "Cost basis is tracked on " + costRows.length + " entries: " + (gain >= 0 ? "+" : "−") + money(Math.abs(gain)) + " against current value." : "");
 
   render();
@@ -296,7 +330,7 @@
       (others ? '<button class="cyc prev" data-cycle="-1" title="Previous card" aria-label="Previous card">‹</button>' +
         '<button class="cyc next" data-cycle="1" title="Next card" aria-label="Next card">›</button>' : "") +
       capHTML({ name: e.name, variant: e.variant, price: money(e.unitCents), pc: true,
-        chips: [chip(dexNo, "dexno"), subTag, r.manual ? chip(PIN, "pin", "Your pick (not the most valuable)") : "", gradeChip(e), others ? chip("+" + others, "qty", others + " other card" + (others === 1 ? "" : "s")) : ""],
+        chips: [chip(dexNo, "dexno"), subTag, r.manual ? chip(PIN, "pin", "Your pick (not the most valuable)") : "", gradeChip(e), priceChips([e]), others ? chip("+" + others, "qty", others + " other card" + (others === 1 ? "" : "s")) : ""],
         line2: e.console.replace(/^Pokemon /, "") + " #" + e.number }) + "</div>";
   }
   function summaryHTML() {
@@ -417,7 +451,7 @@
 
   // Shared helpers for the feature scripts (binders.js, ...), which load after this file.
   window.VB = {
-    capHTML: capHTML, chip: chip, gradeChip: gradeChip,
+    capHTML: capHTML, chip: chip, gradeChip: gradeChip, priceChips: priceChips, priceDetail: priceDetail,
     D: D, $: $, money: money, esc: esc, numKey: numKey, imgTag: imgTag, pcCls: pcCls, firstSrc: firstSrc, setZoomImg: setZoomImg,
     DEX: DEX, byEntryKey: byEntryKey, byPcId: byPcId, setsByKey: setsByKey, showTab: showTab,
     registerTab: function (tab, viewId, show, hash) { VIEWS[tab] = [viewId]; EXT[tab] = { show: show, hash: hash || tab }; }
