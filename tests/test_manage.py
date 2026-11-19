@@ -42,6 +42,8 @@ PAGES = {
     "dexsearch_testmon__.json": [{"id": "ts-1"}, {"id": "ts-2"}, {"id": "xx-1"}],
     "dexsearch_testmon__testset.json": [{"id": "ts-1"}, {"id": "ts-2"}],
     "dexsearch_testmon_2_.json": [{"id": "ts-2"}],
+    "dexsearch_testmon_2_testset.json": [{"id": "ts-2"}],
+    "dexsearch_testmon_58_testset.json": [],            # TCGdex answers a filter that matches nothing with an empty list
     "dexcard_en_ts-1.json": tcg("ts-1", "Testmon", "1", "Test Set", 9),
     "dexcard_en_ts-2.json": tcg("ts-2", "Testmon ex", "2", "Test Set"),            # TCGdex has no TCGplayer id for this one
     "dexcard_en_xx-1.json": tcg("xx-1", "Testmon", "1", "Other Set", 77),
@@ -129,6 +131,19 @@ class Search(Base):
         listings = [u for u in self.fetch.urls if "/cards?" in u]
         self.assertIn("localId=2", listings[0])
         self.assertIn("set.name=Test+Set", listings[1])
+
+    def test_a_set_and_number_that_match_nothing_give_no_results_not_the_name_only_list(self):
+        self.assertEqual(self.svc.search("Testmon", "Test Set", "58"), {"total": 0, "results": []})
+        self.assertEqual([u for u in self.fetch.urls if "/cards?" in u], [
+            "https://api.tcgdex.net/v2/en/cards?name=Testmon&localId=58&set.name=Test+Set"])   # one query, filters included
+
+    def test_a_set_and_number_that_match_give_just_that_card(self):
+        out = self.svc.search("Testmon", "Test Set", "2")
+        self.assertEqual((out["total"], [c["id"] for c in out["results"]]), (1, ["ts-2"]))
+
+    def test_the_filters_survive_the_http_route(self):
+        status, out = Server.call_route(self.svc, "/api/catalog/search?q=Testmon&set=Test%20Set&number=58")
+        self.assertEqual((status, out), (200, {"total": 0, "results": []}))
 
     def test_only_the_requested_page_is_fetched_in_full(self):
         self.svc.search("Testmon", limit=1)
@@ -527,6 +542,20 @@ class Server(Base):
         self.addCleanup(self.httpd.server_close)
         self.addCleanup(self.httpd.shutdown)
         self.port = self.httpd.server_address[1]
+
+    @staticmethod
+    def call_route(svc, path):
+        """GET `path` from a throwaway server around `svc`."""
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), make_handler(svc))
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", httpd.server_address[1], timeout=10)
+            c.request("GET", path)
+            r = c.getresponse()
+            return r.status, json.loads(r.read())
+        finally:
+            httpd.shutdown()
+            httpd.server_close()
 
     def call(self, method, path, body=None, headers=None):
         c = http.client.HTTPConnection("127.0.0.1", self.port, timeout=10)

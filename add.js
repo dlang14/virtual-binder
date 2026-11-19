@@ -42,9 +42,9 @@
   function shell() {
     drawn = up;
     view.innerHTML = '<section class="add"><h2>Add cards</h2>' +
-      (up ? '<form id="addForm" class="add-form"><label>Card name<input name="q" required minlength="2" placeholder="Pikachu" autocomplete="off"></label>' +
-        '<label>Set (optional)<input name="set" placeholder="Base Set" autocomplete="off"></label>' +
-        '<label>Number (optional)<input name="number" placeholder="58" autocomplete="off"></label><button type="submit">Search</button></form>' +
+      (up ? '<form id="addForm" class="add-form"><label>Card name<input name="q" required minlength="2" placeholder="e.g. Pikachu" autocomplete="off"></label>' +
+        '<label>Set (optional)<input name="set" placeholder="e.g. Base Set" autocomplete="off"></label>' +
+        '<label>Number (optional)<input name="number" placeholder="e.g. 58" autocomplete="off"></label><button type="submit">Search</button></form>' +
         '<div id="addBanner">' + banner() + '</div><div id="addStatus" class="add-status"></div><div id="addResults" class="add-grid"></div>'
         : '<div class="empty-msg"><p>Adding cards needs the local server. Run <code>python3 scripts/serve.py</code> and open <code>http://127.0.0.1:8123</code>.</p></div>') +
       "</section>";
@@ -53,12 +53,14 @@
   function search(offset) {
     var f = $("addForm"), qs = ["q", "set", "number"].map(function (k) { return k + "=" + encodeURIComponent(f.elements[k].value); }).join("&");
     if (!offset) { shown = []; $("addResults").innerHTML = ""; }
+    var f0 = function (k) { return f.elements[k].value.trim(); };
+    var scope = "“" + f0("q") + "”" + (f0("set") ? " in a set matching “" + f0("set") + "”" : "") + (f0("number") ? " with number " + f0("number") : "");
     $("addStatus").textContent = "Searching…";
     api("GET", "/api/catalog/search?" + qs + "&offset=" + offset).then(function (out) {
       shown = shown.concat(out.results);
       $("addResults").insertAdjacentHTML("beforeend", out.results.map(resultHTML).join(""));
-      $("addStatus").innerHTML = !out.total ? "No cards found." : "Showing " + shown.length + " of " + out.total + (shown.length < out.total ?
-        ' · add a set or number to narrow it, or <button type="button" class="link" id="more">show more</button>' : "");
+      $("addStatus").innerHTML = !out.total ? "No matches for " + esc(scope) + "." : "Showing " + shown.length + " of " + out.total + " for " + esc(scope) +
+        (shown.length < out.total ? ' · add a set or number to narrow it, or <button type="button" class="link" id="more">show more</button>' : "");
       if ($("more")) $("more").addEventListener("click", function () { search(shown.length); });
     }).catch(function (e) { $("addStatus").textContent = e.message; });
   }
