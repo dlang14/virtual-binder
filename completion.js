@@ -1,6 +1,7 @@
-// Set Completion: pick any TCGdex set and see what you own, what you're missing, and the missing
-// cards from cheapest to priciest. Prices are TCGdex's market prices (TCGplayer, else Cardmarket);
-// a card with no price shows "—". Sets precomputed with `build.py --sets` are embedded in
+// Set Completion: pick any TCGdex set and see every card in it, in set-number order, with the ones
+// you own highlighted (and your PriceCharting value for them). A filter shows all cards, just what you
+// own, or just what's missing. Prices on missing cards are TCGdex's market prices (TCGplayer, else
+// Cardmarket); a card with no price shows "—". Sets precomputed with `build.py --sets` are embedded in
 // binder-data.js; any other set is fetched from TCGdex on demand and cached in this browser.
 (function () {
   "use strict";
@@ -10,8 +11,10 @@
   var SKEY = "virtualBinder.completionSet.v1", CKEY = "virtualBinder.setCache.v2.", OLDCKEY = "virtualBinder.setCache.v1.", TTL = 3 * 86400e3, API = "https://api.tcgdex.net/v2/en/";
   var VARIANTS = ["normal", "holofoil", "reverse-holofoil", "1st-edition-holofoil", "1st-edition-normal", "unlimited-holofoil", "unlimited"];
   var byId = {}; SETS.forEach(function (s) { byId[s.id] = s; });
-  var ui = { set: null, showOwned: false, q: "", open: false, loading: null, err: null, data: {} };
-  try { ui.set = localStorage.getItem(SKEY); ui.showOwned = localStorage.getItem(SKEY + ".owned") === "1"; } catch (err) {}
+  var FILTERS = [["all", "All"], ["owned", "Owned"], ["missing", "Missing"]];
+  var ui = { set: null, filter: "all", q: "", open: false, loading: null, err: null, data: {} };
+  try { ui.set = localStorage.getItem(SKEY); ui.filter = localStorage.getItem(SKEY + ".filter") || "all"; } catch (err) {}
+  if (!FILTERS.some(function (f) { return f[0] === ui.filter; })) ui.filter = "all";
   if (!ui.set || !byId[ui.set]) {
     // default: the set you own the most cards from
     var best = null; Object.keys(OWNED).forEach(function (s) { var n = Object.keys(OWNED[s]).length; if (byId[s] && (!best || n > best.n)) best = { s: s, n: n }; });
@@ -87,12 +90,17 @@
     if (!/^https:\/\//.test(base)) return sleeve(c, d);
     return '<img src="' + esc(base + SUFFIX[0]) + '" data-base="' + esc(base) + '" data-k="0" data-sleeve="' + esc(sleeve(c, d)) + '" alt="' + esc(c.name) + '" loading="lazy" decoding="async" referrerpolicy="no-referrer">';
   }
+  // Set-number order: plain numbers first, then prefixed ones (TG01, GG01, ...).
+  function byNumber(a, b) {
+    var x = VB.numKey(a.n), y = VB.numKey(b.n);
+    return x[0] < y[0] ? -1 : x[0] > y[0] ? 1 : x[1] - y[1] || String(a.n).localeCompare(String(b.n), undefined, { numeric: true });
+  }
   function cardHTML(c, d, ownedIdx) {
-    var own = ownedIdx && ownedIdx.length, e = own ? D.entries[ownedIdx[0]] : null;
+    var own = ownedIdx && ownedIdx.length;
     var img = imgHTML(c, d);
     return '<div class="ccard' + (own ? " own" : "") + '"><div class="cimg">' + img + "</div>" +
       '<div class="cn" title="' + esc(c.name) + '">' + esc(c.name) + '</div><div class="cs">#' + esc(c.n) + (d.official ? "/" + d.official : "") + (c.rarity ? " · " + esc(c.rarity) : "") + "</div>" +
-      (own ? '<div class="cp mine" title="Your PriceCharting price, per card">You own ' + ownedIdx.reduce(function (a, i) { return a + D.entries[i].qty; }, 0) + " · " + money(e.unitCents) + "</div>"
+      (own ? '<div class="cp mine" title="Your PriceCharting value for all the copies you own">You own ' + ownedIdx.reduce(function (a, i) { return a + D.entries[i].qty; }, 0) + " - " + money(ownedIdx.reduce(function (a, i) { return a + D.entries[i].valueCents; }, 0)) + "</div>"
         : '<div class="cp' + (c.price ? "" : " none") + '" title="' + esc(priceTitle(c.price)) + '">' + priceTxt(c.price) + (c.price ? ' <span class="src">' + (c.price.cur === "USD" ? "TCGplayer mkt" : esc(c.price.src) + ", EUR") + "</span>" : "") + "</div>") +
       '<div class="cl">' + links(c, d.name) + "</div></div>";
   }
@@ -108,7 +116,7 @@
   function ensureShell() {
     if (shell) return;
     shell = true;
-    $("completionView").innerHTML = '<section class="set"><div class="set-head"><h2>Set Completion</h2><span class="meta">Pick any set to see what you\'re missing, cheapest first.</span></div>' +
+    $("completionView").innerHTML = '<section class="set"><div class="set-head"><h2>Set Completion</h2><span class="meta">Pick any set to see every card in it and which ones you own.</span></div>' +
       '<div class="spick"><input id="setSearch" type="search" placeholder="Search ' + SETS.length + ' sets: name, id or series…" autocomplete="off" aria-label="Find a set"><div id="setOpts"></div></div><div id="cbody"></div></section>';
   }
   function progress() {
@@ -124,9 +132,8 @@
     else if (!d) html += '<div class="vnote">Loading ' + esc(s.name) + " from TCGdex…</div>";
     else {
       var owned = OWNED[d.id] || {}, have = d.cards.filter(function (c) { return owned[c.id]; }), miss = d.cards.filter(function (c) { return !owned[c.id]; });
-      var rank = function (c) { return !c.price ? 2 : c.price.cur === "USD" ? 0 : 1; };
-      miss.sort(function (a, b) { return rank(a) - rank(b) || (a.price && b.price ? a.price.c - b.price.c : 0) || VB.numKey(a.n)[1] - VB.numKey(b.n)[1]; });
-      have.sort(function (a, b) { return VB.numKey(a.n)[1] - VB.numKey(b.n)[1]; });
+      var all = d.cards.slice().sort(byNumber);
+      var shown = ui.filter === "owned" ? all.filter(function (c) { return owned[c.id]; }) : ui.filter === "missing" ? all.filter(function (c) { return !owned[c.id]; }) : all;
       var pct = d.cards.length ? Math.round(1000 * have.length / d.cards.length) / 10 : 0;
       var usd = miss.filter(function (c) { return c.price && c.price.cur === "USD"; }), eur = miss.filter(function (c) { return c.price && c.price.cur === "EUR"; });
       var noP = miss.length - usd.length - eur.length;
@@ -137,13 +144,16 @@
         '<div class="stat"><div class="k">Missing</div><div class="v">' + miss.length + '</div><div class="s">' + usd.length + " with a TCGplayer price" + (eur.length ? ", " + eur.length + " Cardmarket only" : "") + (noP ? ", " + noP + " no price" : "") + "</div></div>" +
         '<div class="stat"><div class="k">Cost to complete</div><div class="v">' + (loading ? "…" : money(cost)) + '</div><div class="s">TCGplayer market, ' + usd.length + " card" + (usd.length === 1 ? "" : "s") + (miss.length - usd.length ? "; excludes " + (miss.length - usd.length) + " not priced in USD" : "") + "</div></div></div>" +
         '<div class="progress big"><i style="width:' + pct + '%"></i></div>' +
-        '<div class="cbar"><label><input type="checkbox" id="showOwned"' + (ui.showOwned ? " checked" : "") + "> Show the cards I own (" + have.length + ")</label>" +
+        '<div class="cbar"><span class="seg cfilter" role="group" aria-label="Show cards">' + FILTERS.map(function (f) {
+          var n = f[0] === "owned" ? have.length : f[0] === "missing" ? miss.length : d.cards.length;
+          return '<button data-filter="' + f[0] + '" class="' + (ui.filter === f[0] ? "on" : "") + '" aria-pressed="' + (ui.filter === f[0]) + '">' + f[1] + " (" + n + ")</button>";
+        }).join("") + "</span>" +
         '<span class="cmeta">' + (loading ? "Loading prices from TCGdex: " + ui.loading.done + " / " + ui.loading.total + "…" : (PRE[d.id] && !d.live ? "Precomputed by build.py on " : "Fetched from TCGdex on ") + esc(d.fetched) + (d.failed ? " · " + d.failed + " card(s) failed to load, pick the set again to retry" : "")) + "</span>" +
         (loading ? "" : '<button class="btn sm" data-act="refresh" title="Fetch the card list and prices from TCGdex again">Refresh prices</button>') + "</div></div>" +
-        '<h3 class="clh">Missing, cheapest first (' + miss.length + ")</h3>" +
-        (miss.length ? '<div class="cgrid">' + miss.map(function (c) { return cardHTML(c, d, null); }).join("") + "</div>" : '<div class="vnote"><b>Complete!</b> You own every card in this set.</div>') +
-        (ui.showOwned ? '<h3 class="clh">Owned (' + have.length + ")</h3>" + (have.length ? '<div class="cgrid">' + have.map(function (c) { return cardHTML(c, d, owned[c.id]); }).join("") + "</div>" : '<p class="vsub">None yet.</p>') : "") +
-        '<p class="vsub">Missing-card prices are TCGdex\'s market prices: the TCGplayer market price in USD (normal print first, otherwise the first variant listed), or the Cardmarket trend in EUR when there\'s no TCGplayer price. Cards with no price show — and sort last. Owned cards show your own PriceCharting price. Owned cards are matched by TCGdex card id, so rows only matched in the Pokémon TCG API, or Japanese prints, aren\'t counted here.</p>';
+        '<h3 class="clh">' + (ui.filter === "owned" ? "Owned" : ui.filter === "missing" ? "Missing" : "All cards") + " (" + shown.length + ")</h3>" +
+        (shown.length ? '<div class="cgrid">' + shown.map(function (c) { return cardHTML(c, d, owned[c.id]); }).join("") + "</div>"
+          : ui.filter === "owned" ? '<p class="vsub">None yet.</p>' : '<div class="vnote"><b>Complete!</b> You own every card in this set.</div>') +
+        '<p class="vsub">Cards are listed in set-number order. Missing-card prices are TCGdex\'s market prices: the TCGplayer market price in USD (normal print first, otherwise the first variant listed), or the Cardmarket trend in EUR when there\'s no TCGplayer price. Cards with no price show —. Owned cards show how many you own and your PriceCharting value for all those copies. Owned cards are matched by TCGdex card id, so rows only matched in the Pokémon TCG API, or Japanese prints, aren\'t counted here.</p>';
     }
     $("cbody").innerHTML = html;
   }
@@ -163,11 +173,13 @@
   });
   v.addEventListener("click", function (ev) {
     var o = ev.target.closest("[data-set]"); if (o) { select(o.getAttribute("data-set")); return; }
+    var fb = ev.target.closest("[data-filter]");
+    if (fb) {
+      ui.filter = fb.getAttribute("data-filter"); try { localStorage.setItem(SKEY + ".filter", ui.filter); } catch (err) {}
+      render(); var nb = v.querySelector('[data-filter="' + ui.filter + '"]'); if (nb) nb.focus(); return;
+    }
     if (ev.target.closest('[data-act="refresh"]')) { select(ui.set, true); return; }
     if (ui.open && !ev.target.closest(".spick")) { ui.open = false; renderPicker(); }
-  });
-  v.addEventListener("change", function (ev) {
-    if (ev.target.id === "showOwned") { ui.showOwned = ev.target.checked; try { localStorage.setItem(SKEY + ".owned", ui.showOwned ? "1" : "0"); } catch (err) {} render(); }
   });
   document.addEventListener("click", function (ev) { if (ui.open && !v.contains(ev.target)) { ui.open = false; renderPicker(); } });
   var started = false;

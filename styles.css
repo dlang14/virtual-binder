@@ -286,7 +286,12 @@ main[hidden]{display:none}
 .ccard .cimg img{width:100%;height:100%;object-fit:contain;display:block}
 .ccard .cimg .noimg{position:absolute;inset:6px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;color:var(--ink-3);border:1px dashed rgba(var(--fg-rgb),.15);border-radius:6px}
 .ccard:not(.own) .cimg img{filter:saturate(.85)}
-.ccard.own{border-color:rgba(111,207,151,.45)}
+.ccard:not(.own){border-style:dashed}
+.ccard:not(.own) .cimg{opacity:.6}
+.ccard.own{border:2px solid var(--good);padding:7px;background:color-mix(in srgb,var(--good) 12%,var(--panel));box-shadow:0 0 0 1px var(--good),0 4px 14px rgba(0,0,0,.25)}
+.ccard.own .cp.mine{font-weight:800}
+.cbar .cfilter{display:inline-flex}
+.cbar .cfilter button{font-size:12px;padding:5px 10px}
 .ccard .cn{font-weight:650;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ccard .cs{color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .ccard .cp{color:var(--accent);font-weight:700;margin-top:2px;font-size:13px}

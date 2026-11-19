@@ -12,7 +12,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
 - **Swap the card in a slot:** click a Pokédex slot to see every card you own of that species, then choose **Use this card**. You can also cycle with the ‹ › arrows. Your choices are pinned, saved in the browser, and can be exported or imported as `picks.json`.
 - **My Binders:** make your own binders, like "Eeveelutions", "Charizards" or "Fire types". See [My Binders](#my-binders).
 - **Value over time:** every build saves a snapshot of your collection's value, so the Value tab can chart it and list your biggest gainers and losers since the last export. PriceCharting doesn't keep that history for you. See [Value over time](#value-over-time).
-- **Set Completion:** pick any of TCGdex's English sets to see which cards you own, which you're missing (cheapest first, with TCGplayer market prices) and what it would cost to finish the set. See [Set Completion](#set-completion).
+- **Set Completion:** pick any of TCGdex's English sets to see every card in it in set-number order, which ones you own (with your PriceCharting value) and which you're missing, and what it would cost to finish the set. See [Set Completion](#set-completion).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
 - **Prices at each card's own condition:** English cards are priced from TCGplayer market prices (via JustTCG) at the condition in your notes column (no note = Near Mint) and the right printing. A card with no exact price shows a labelled PriceCharting price or "no price", never another condition's. See [Pricing](#pricing).
 
@@ -175,11 +175,11 @@ Prices are only ever the ones each build got from its sources (see [Pricing](#pr
 The Set Completion tab has a search box covering every English set on [TCGdex](https://tcgdex.dev), with the sets you own listed first. For the set you pick, it shows:
 
 - how many of its cards you own, and the value of those cards
-- every missing card, cheapest first, with its TCGplayer market price (or the Cardmarket price in EUR when TCGplayer has none)
+- every card in the set, in set-number order. Cards you own have a solid highlighted border and a caption like "You own 3 - $1.77": the number of copies and your PriceCharting value for all of them. Cards you're missing have a dashed border, dimmed art and their TCGplayer market price (or the Cardmarket price in EUR when TCGplayer has none)
 - the cost to complete, which is the sum of the USD prices of the missing cards
 - links to each card on TCGplayer and PriceCharting
 
-Tick **Show the cards I own** to see the whole set. The tab remembers the last set you opened.
+Use the **All / Owned / Missing** buttons to show the whole set, just the cards you own, or just the ones you don't. The tab remembers the last set you opened and your filter choice.
 
 By default, the page fetches set lists and prices from TCGdex's public API when you open a set. This works from `file://`. Results are cached in your browser for 3 days, and **Refresh prices** fetches them again. A large set takes a few seconds to load the first time.
 
