@@ -155,6 +155,14 @@ class Add(Base):
                           "notes": "LP - corner whitening", "quantity": "2", "date-entered": "2026-11-19", "price-in-pennies": "0"})
         self.assertEqual(list(row), COLUMNS)
 
+    def test_card_numbers_are_written_the_way_pricecharting_writes_them(self):
+        self.fetch.pages["dexcard_en_ts-5.json"] = tcg("ts-5", "Testchu", "025", "Test Set", 50)
+        self.fetch.pages["dexcard_en_ts-6.json"] = tcg("ts-6", "Testchu", "SWSH025", "Test Set", 60)
+        self.svc.add("ts-5", "NM")
+        self.svc.add("ts-6", "NM")
+        self.assertEqual([r["product-name"] for r in self.rows()], ["Testchu #25", "Testchu #SWSH025"])
+        self.assertEqual(IdRegistry(self.ids).get(CardRef("Testchu", "25", "Pokemon Test Set").key)["id"], "50")
+
     def test_the_tcgplayer_id_goes_to_the_id_registry_under_the_pricing_key(self):
         self.svc.add("ts-1", "NM")
         hit = IdRegistry(self.ids).get(CardRef("Testmon", "1", "Pokemon Test Set").key)

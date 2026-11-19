@@ -94,11 +94,11 @@
   $("stats").innerHTML =
     stat("Collection value", money(T.valueCents), PR.priced ?
       PR.priced + " rows priced per condition (TCGplayer)" + (PR.fallback + PR.skipped + PR.none ? " · " + (PR.fallback + PR.skipped) + " on PriceCharting (" + money(PR.fallbackValueCents) + ")" +
-        (PR.none ? " · " + PR.none + " no price" : "") : "") : "PriceCharting prices (no price API key set)") +
+        (PR.none ? " · " + PR.none + " no price" : "") : "") : D.entries.length ? "PriceCharting prices (no price API key set)" : "No cards yet") +
     stat("Cards", T.cards.toLocaleString(), T.rows + " entries · " + setCount + " sets") +
-    '<div class="stat mvp">' + (mvp.images.length ? '<img src="' + esc(mvp.images[0].thumb) + '" alt="">' : "") +
+    (!mvp ? "" : '<div class="stat mvp">' + (mvp.images.length ? '<img src="' + esc(mvp.images[0].thumb) + '" alt="">' : "") +
     '<div><div class="k">Most valuable card</div><div class="v">' + money(mvp.unitCents) + '</div><div class="s">' + esc(mvp.name) +
-    (mvp.variant ? " [" + esc(mvp.variant) + "]" : "") + " #" + esc(mvp.number) + " · " + esc(mvp.set.replace(/^Pokemon /, "")) + "</div></div></div>";
+    (mvp.variant ? " [" + esc(mvp.variant) + "]" : "") + " #" + esc(mvp.number) + " · " + esc(mvp.set.replace(/^Pokemon /, "")) + "</div></div></div>");
   function stat(k, v, s) { return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + s + "</div></div>"; }
 
   // ---- controls ----
@@ -230,7 +230,7 @@
           "</div>" + pagesHTML(items) + "</section>";
       });
     }
-    $("binder").innerHTML = html || '<p class="empty-msg">Nothing matches that search.</p>';
+    $("binder").innerHTML = html || '<p class="empty-msg">' + (D.entries.length ? "Nothing matches that search." : "Your collection is empty. Add your first card on the Add cards tab.") + "</p>";
     document.querySelectorAll("[data-missing]").forEach(function (cb) {
       cb.addEventListener("change", function () { state.missing[cb.getAttribute("data-missing")] = cb.checked; render(); });
     });

@@ -94,14 +94,15 @@ class CollectionService:
             raise ServiceError(404, "that card was not found on TCGdex")
         card = self.catalog.card_from_detail(detail)
         option = self._printing(card, printing)
+        number = card.number.lstrip("0") or "0" if card.number.isdigit() else card.number   # PriceCharting writes #25, TCGdex 025
         console = self._console(card.set_name)
         if option.tcgplayer_id:  # the pricing step finds the id here, so the build never searches for this card again
             registry = self.open_registry()
-            registry.put(CardRef(card.name, card.number, console, option.tag).key, option.tcgplayer_id, "tcgdex", card.name)
+            registry.put(CardRef(card.name, number, console, option.tag).key, option.tcgplayer_id, "tcgdex", card.name)
             registry.save()
         tag = f" [{option.tag}]" if option.tag else ""   # the printing, where the pricing step reads it
         self.store.append({
-            "id": f"tcgdex:{card.card_id}:{option.key}", "product-name": f"{card.name}{tag} #{card.number}", "console-name": console,
+            "id": f"tcgdex:{card.card_id}:{option.key}", "product-name": f"{card.name}{tag} #{number}", "console-name": console,
             "price-in-pennies": "0", "include-string": "Ungraded", "condition-string": "Normal wear", "condition-id": "1",
             "notes": note, "cost-basis-in-pennies": "0", "quantity": str(qty), "date-entered": self.today().isoformat()})
         self.on_change()

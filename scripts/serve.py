@@ -58,7 +58,8 @@ def build_runner(csv_path, extra=()):
     def run():
         source, flags = csv_path, list(extra)
         if not os.path.exists(csv_path):   # nothing added yet: build the empty page, and leave no history snapshot behind
-            empty = os.path.join(tempfile.gettempdir(), "virtual-binder-empty.csv")
+            os.makedirs(os.path.join(tempfile.gettempdir(), "virtual-binder-empty"), exist_ok=True)
+            empty = os.path.join(tempfile.gettempdir(), "virtual-binder-empty", "collection.csv")
             with open(empty, "w", encoding="utf-8", newline="") as f:
                 f.write(",".join(COLUMNS) + "\n")
             source, flags = empty, flags + ["--no-history"]
@@ -168,7 +169,7 @@ def main():
         if not ok:
             sys.exit(f"The first build failed: {message}")
     server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(service, ROOT, rebuilder))
-    print(f"Virtual Binder: http://127.0.0.1:{args.port}  (collection: {args.csv}; Ctrl+C to stop)")
+    print(f"Virtual Binder: http://127.0.0.1:{args.port}  (collection: {args.csv}; Ctrl+C to stop)", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
