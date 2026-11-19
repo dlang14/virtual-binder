@@ -4,11 +4,13 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, Dict, NamedTuple, Optional
+from collections import deque
+from typing import Callable, Deque, Dict, NamedTuple, Optional
 
 UA = "virtual-binder/1.0 (personal collection viewer)"
 
@@ -17,6 +19,28 @@ class HttpResult(NamedTuple):
     status: int          # 0 = network failure
     data: object         # parsed JSON (or {"error": text})
     headers: dict
+
+
+class RateLimiter:
+    """At most `limit` calls in any sliding `window` seconds: wait() returns at once while there is room and otherwise
+    sleeps just until the oldest call leaves the window. `limit` can be changed at any time (e.g. from the plan's answer)."""
+
+    def __init__(self, limit: int, window: float = 60.0, clock: Callable[[], float] = time.monotonic,
+                 sleep: Callable[[float], None] = time.sleep):
+        self.limit, self.window, self._clock, self._sleep = max(int(limit), 1), window, clock, sleep
+        self._stamps: Deque[float] = deque()
+        self._lock = threading.Lock()
+
+    def wait(self) -> None:
+        with self._lock:
+            while True:
+                now = self._clock()
+                while self._stamps and self._stamps[0] <= now - self.window:
+                    self._stamps.popleft()
+                if len(self._stamps) < self.limit:
+                    break
+                self._sleep(self._stamps[0] + self.window - now)
+            self._stamps.append(self._clock())
 
 
 def request_json(url: str, *, headers: Optional[dict] = None, body: object = None, method: Optional[str] = None,
@@ -39,6 +63,7 @@ def request_json(url: str, *, headers: Optional[dict] = None, body: object = Non
                 return HttpResult(r.status, json.loads(text) if text.strip() else None, dict(r.headers))
         except urllib.error.HTTPError as e:
             text = e.read().decode("utf-8", "replace")[:500]
+            e.close()
             try:
                 data = json.loads(text)
             except ValueError:

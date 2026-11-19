@@ -267,10 +267,10 @@ class JustTcgBatching(unittest.TestCase):
         self.assertEqual(sum(isinstance(v, ProviderError) for v in out.values()), 10)
 
     def test_http_errors_become_provider_errors_and_are_not_prices(self):
-        client = JustTcgClient("k", request=FakeJustTcg(fail=429), pace=0, sleep=lambda s: None)
+        client = JustTcgClient("k", request=FakeJustTcg(fail=503), pace=0, sleep=lambda s: None)
         out = client.fetch([("1", Condition.NM)])
         self.assertIsInstance(out[("1", Condition.NM)], ProviderError)
-        self.assertIn("429", str(out[("1", Condition.NM)]))
+        self.assertIn("503", str(out[("1", Condition.NM)]))
 
     def test_the_key_is_sent_only_as_a_header(self):
         seen = {}

@@ -234,6 +234,8 @@ Each English card is priced at **its own condition and printing**, not with one 
 2. [PkmnPrices](https://pkmnprices.com) name search is the rescue for cards TCGdex has no id for (many promos and 30th Celebration cards). It's used once per card, and the id is remembered.
 3. [JustTCG](https://justtcg.com) gives the TCGplayer market price at each condition, by product id, in batches of 20 cards per request.
 
+**Request limits.** JustTCG's free plan allows 10 requests a minute, 100 a day and 1,000 a month. A build sends at most 9 a minute (or, once JustTCG reports your plan, its per-minute limit less one), so a long first build just takes a few minutes. A per-minute 429 waits for `Retry-After` (or a minute) and tries again, up to 3 times. A daily or monthly 429 is never retried: the rest of the build is skipped, the message says which limit was hit, and the affected cards show "price pending" until a later build. PkmnPrices (60 a minute) is held to 55 a minute, and its daily credit limit isn't retried either.
+
 **What a price can be.** Each row ends up in one of four states, shown on the card and in the zoom panel:
 
 | State | Meaning |

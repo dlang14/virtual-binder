@@ -15,12 +15,13 @@ from difflib import SequenceMatcher
 from typing import Callable, List, Optional, Sequence, Tuple
 
 from .domain import CardRef, alnum
-from .net import request_json
+from .net import RateLimiter, request_json
 from .store import TtlCache
 
 TCGDEX = "https://api.tcgdex.net/v2/en"
 _KINDS = {"normal": ("Normal", None), "holo": ("Holo", "Holo"), "reverse": ("Reverse Holo", "Reverse Holo")}  # TCGdex type -> label, tag
 PKMNPRICES = "https://api.pkmnprices.com/v1"
+PKMN_PER_MINUTE = 55
 
 # fetch_json(url, cache_name) -> parsed JSON or None. The build passes its own cached fetcher.
 FetchJson = Callable[[str, str], object]
@@ -100,8 +101,9 @@ def _name_close(a: str, b: str) -> bool:
 
 class CardCatalog:
     def __init__(self, fetch_json: FetchJson, pkmnprices_key: Optional[str] = None, search_cache: Optional[TtlCache] = None,
-                 request: Callable = request_json, max_pkmn_requests: int = 60):
+                 request: Callable = request_json, max_pkmn_requests: int = 60, limiter: Optional[RateLimiter] = None):
         self._fetch, self._pk_key, self._cache, self._request = fetch_json, pkmnprices_key, search_cache, request
+        self._limiter = limiter or RateLimiter(PKMN_PER_MINUTE)   # PkmnPrices allows 60 a minute on every plan below Scale
         self.max_pkmn_requests = max_pkmn_requests
         self.pkmn_requests = 0
 
@@ -205,9 +207,12 @@ class CardCatalog:
             if self.pkmn_requests >= self.max_pkmn_requests:
                 return [], "PkmnPrices request budget for this build reached", True
             self.pkmn_requests += 1
-            res = self._request(f"{PKMNPRICES}/cards?{qs}", headers={"x-api-key": self._pk_key})
+            self._limiter.wait()
+            res = self._request(f"{PKMNPRICES}/cards?{qs}", headers={"x-api-key": self._pk_key}, no_retry_429=("credit_limit_exceeded",))
             if res.status != 200 or not isinstance(res.data, dict):
-                return [], f"PkmnPrices HTTP {res.status}", True
+                err = res.data.get("error") if isinstance(res.data, dict) else None
+                kind = err.get("limit_type") if res.status == 429 and isinstance(err, dict) else None   # "daily" or "per_minute"
+                return [], f"PkmnPrices HTTP {res.status}" + (f" ({kind.replace('_', '-')} limit)" if kind else ""), True
             cached = res.data.get("data") or []
             if self._cache:
                 self._cache.put(f"pkmn|{qs}", cached)
