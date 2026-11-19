@@ -1,5 +1,5 @@
 // Set Completion: pick any TCGdex set and see every card in it, in set-number order, with the ones
-// you own highlighted (and your PriceCharting value for them). A filter shows all cards, just what you
+// you own highlighted (and your value for them, as priced in the binder). A filter shows all cards, just what you
 // own, or just what's missing. Prices on missing cards are TCGdex's market prices (TCGplayer, else
 // Cardmarket); a card with no price shows "—". Sets precomputed with `build.py --sets` are embedded in
 // binder-data.js; any other set is fetched from TCGdex on demand and cached in this browser.
@@ -100,7 +100,7 @@
     var img = imgHTML(c, d);
     return '<div class="ccard' + (own ? " own" : "") + '"><div class="cimg">' + img + "</div>" +
       '<div class="cn" title="' + esc(c.name) + '">' + esc(c.name) + '</div><div class="cs">#' + esc(c.n) + (d.official ? "/" + d.official : "") + (c.rarity ? " · " + esc(c.rarity) : "") + "</div>" +
-      (own ? '<div class="cp mine" title="Your PriceCharting value for all the copies you own">You own ' + ownedIdx.reduce(function (a, i) { return a + D.entries[i].qty; }, 0) + " - " + money(ownedIdx.reduce(function (a, i) { return a + D.entries[i].valueCents; }, 0)) + "</div>"
+      (own ? '<div class="cp mine" title="Your value for all the copies you own, priced at each copy’s condition as in the binder">You own ' + ownedIdx.reduce(function (a, i) { return a + D.entries[i].qty; }, 0) + " - " + money(ownedIdx.reduce(function (a, i) { return a + D.entries[i].valueCents; }, 0)) + "</div>"
         : '<div class="cp' + (c.price ? "" : " none") + '" title="' + esc(priceTitle(c.price)) + '">' + priceTxt(c.price) + (c.price ? ' <span class="src">' + (c.price.cur === "USD" ? "TCGplayer mkt" : esc(c.price.src) + ", EUR") + "</span>" : "") + "</div>") +
       '<div class="cl">' + links(c, d.name) + "</div></div>";
   }
