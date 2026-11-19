@@ -119,6 +119,7 @@ class PrintingWant:
 
 
 _EXPLICIT_TAGS = {
+    "normal": frozenset({Printing.NORMAL, Printing.UNLIMITED}),
     "holo": frozenset({Printing.HOLOFOIL, Printing.UNLIMITED_HOLOFOIL}),
     "holofoil": frozenset({Printing.HOLOFOIL, Printing.UNLIMITED_HOLOFOIL}),
     "reverseholo": frozenset({Printing.REVERSE_HOLOFOIL}),
@@ -203,6 +204,7 @@ class PriceResult:
     as_of: Optional[str] = None     # date the source last updated this price, YYYY-MM-DD
     stale: bool = False             # the source marks the price as not current
     reason: str = ""                # why there is no price, or a caveat on a price
+    pending: bool = False           # no price only because the provider couldn't answer right now (quota, outage); a later run may
 
     @property
     def priced(self) -> bool:
@@ -210,8 +212,9 @@ class PriceResult:
 
     @staticmethod
     def none(reason: str, condition: Optional[Condition] = None, tcgplayer_id: Optional[str] = None,
-             printing: Optional[Printing] = None) -> "PriceResult":
-        return PriceResult(Status.NO_PRICE, None, condition=condition, tcgplayer_id=tcgplayer_id, printing=printing, reason=reason)
+             printing: Optional[Printing] = None, pending: bool = False) -> "PriceResult":
+        return PriceResult(Status.NO_PRICE, None, condition=condition, tcgplayer_id=tcgplayer_id, printing=printing, reason=reason,
+                           pending=pending)
 
 
 def dollars_to_cents(value: float) -> int:

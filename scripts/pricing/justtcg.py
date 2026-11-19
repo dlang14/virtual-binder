@@ -53,7 +53,12 @@ class ProductPrices:
 
 
 class ProviderError(Exception):
-    """The provider couldn't answer (quota, outage, bad key). Never cached."""
+    """The provider couldn't answer (quota, outage, bad key). Never cached. pending: it may answer later (quota, outage),
+    as opposed to a key or setup problem."""
+
+    def __init__(self, message: str, pending: bool = False):
+        super().__init__(message)
+        self.pending = pending
 
 
 def condition_of(label: Optional[str]) -> Optional[Condition]:
@@ -89,17 +94,18 @@ class JustTcgClient:
         for chunk in chunk_unique_ids(list(dict.fromkeys(pairs))):
             if self.requests_made >= self.max_requests:
                 for p in chunk:
-                    out[p] = ProviderError(f"request budget of {self.max_requests} reached for this build")
+                    out[p] = ProviderError(f"request budget of {self.max_requests} reached for this build", pending=True)
                 continue
             if self.requests_made:
                 self._sleep(self._pace)
             self.requests_made += 1
-            res = self._request(URL, headers={"x-api-key": self._key}, body=[{"tcgplayerId": str(p), "condition": c.value} for p, c in chunk])
+            res = self._request(URL, headers={"x-api-key": self._key}, body=[{"tcgplayerId": str(p), "condition": c.value} for p, c in chunk],
+                                no_retry_429=("DAILY_LIMIT_EXCEEDED", "REQUEST_LIMIT_EXCEEDED"))
             if res.status != 200 or not isinstance(res.data, dict):
                 msg = {401: "API key rejected (HTTP 401)", 403: "API key rejected (HTTP 403)",
                        429: "rate or daily quota exhausted (HTTP 429)", 0: "network error"}.get(res.status, f"HTTP {res.status}")
                 for p in chunk:
-                    out[p] = ProviderError(f"JustTCG: {msg}")
+                    out[p] = ProviderError(f"JustTCG: {msg}", pending=res.status in (0, 429) or res.status >= 500)
                 continue
             self.quota = dict(res.data.get("_metadata") or {})
             by_id = {str(c.get("tcgplayerId")): c for c in res.data.get("data") or [] if isinstance(c, dict)}

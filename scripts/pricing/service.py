@@ -121,7 +121,7 @@ class PricingService:
                 continue
             a = answers[(look.tcgplayer_id, item.condition)]
             if isinstance(a, ProviderError):
-                results[n] = PriceResult.none(str(a), item.condition, look.tcgplayer_id)
+                results[n] = PriceResult.none(str(a), item.condition, look.tcgplayer_id, pending=a.pending)
             else:
                 results[n] = pick_price(a, look.tcgplayer_id, item.condition, wants[n])  # type: ignore[arg-type]
         return results  # type: ignore[return-value]

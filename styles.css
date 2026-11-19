@@ -331,6 +331,7 @@ main[hidden]{display:none}
 .chip.wear{background:#b45309;color:#fff;border-color:#b45309}
 .chip.pcprice{background:#6b7280;color:#fff;border-color:#6b7280}
 .chip.noprice{background:transparent;color:#b91c1c;border-color:#b91c1c}
+.chip.pending{background:transparent;color:#b45309;border-color:#b45309}
 .chip.pin{background:var(--accent);color:var(--on-accent);border-color:var(--accent);padding:0 4px}
 .pocket > .tag.pcmark{display:none!important}
 .pocket.missing .caption .n,.kslot.missing .caption .n,.kslot.missing .caption .d{color:var(--ink-3)}

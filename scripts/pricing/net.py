@@ -20,9 +20,10 @@ class HttpResult(NamedTuple):
 
 
 def request_json(url: str, *, headers: Optional[dict] = None, body: object = None, method: Optional[str] = None,
-                 tries: int = 3, timeout: int = 40, sleep: Callable[[float], None] = time.sleep) -> HttpResult:
+                 tries: int = 3, timeout: int = 40, sleep: Callable[[float], None] = time.sleep,
+                 no_retry_429: tuple = ()) -> HttpResult:
     """GET (or POST when body is given) and parse JSON. Retries network errors and 429s (honouring Retry-After, capped
-    at 30 s). Never raises; a failure comes back as a status code with {"error": ...} data. The caller's headers
+    at 30 s, unless the body names one of no_retry_429: a spent daily or monthly quota won't come back in 30 s). Never raises; a failure comes back as a status code with {"error": ...} data. The caller's headers
     (which may hold an API key) are never logged or put in the result."""
     payload = json.dumps(body).encode() if body is not None else None
     hdrs = {"User-Agent": UA, "Accept": "application/json"}
@@ -42,7 +43,7 @@ def request_json(url: str, *, headers: Optional[dict] = None, body: object = Non
                 data = json.loads(text)
             except ValueError:
                 data = {"error": text}
-            if e.code == 429 and attempt < tries - 1:
+            if e.code == 429 and attempt < tries - 1 and not any(m in text for m in no_retry_429):
                 try:
                     wait = min(float(e.headers.get("Retry-After", "")), 30.0)
                 except ValueError:

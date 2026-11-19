@@ -8,7 +8,8 @@
       "<p>This page reads <code>binder-data.js</code>, which is generated from your PriceCharting collection export and isn't included in the repo.</p>" +
       "<ol><li>Export your collection from PriceCharting as a CSV and save it as <code>data/collection.csv</code>.</li>" +
       "<li>Run <code>python3 scripts/build.py</code> (on Windows: <code>py scripts\\build.py</code>). To try it with the example data instead, run <code>python3 scripts/build.py data/sample-collection.csv</code>.</li>" +
-      "<li>Reload this page.</li></ol></div>";
+      "<li>Reload this page.</li></ol>" +
+      "<p>Or run <code>python3 scripts/serve.py</code> and open <code>http://127.0.0.1:8123</code>: it builds the page and lets you add your first cards.</p></div>";
     return;
   }
 
@@ -133,15 +134,17 @@
   var WEAR = { NM: "Near Mint", LP: "Lightly Played", MP: "Moderately Played", HP: "Heavily Played", DMG: "Damaged" };
   // Chips for a card's rows: its wear when it isn't Near Mint, and a label when the price isn't a TCGplayer price.
   function priceChips(rows) {
-    var wear = {}, fb = 0, sk = 0, none = 0, out = [];
+    var wear = {}, fb = 0, sk = 0, none = 0, pend = 0, out = [];
     rows.forEach(function (e) {
       var p = e.price || {};
       if (p.cond && p.cond !== "NM") wear[p.cond] = 1;
-      if (p.state === "fallback") fb++; else if (p.state === "skipped") sk++; else if (p.state === "none") none++;
+      if (p.pending) pend++;
+      if (p.state === "fallback") fb++; else if (p.state === "skipped") sk++; else if (p.state === "none" && !p.pending) none++;
     });
     Object.keys(wear).forEach(function (w) { out.push(chip(esc(w), "wear", "Condition from your notes: " + WEAR[w])); });
     if (fb) out.push(chip("PC price", "pcprice", "PriceCharting price, not adjusted for condition: no TCGplayer price for this exact condition and printing"));
     if (sk) out.push(chip("PC price", "pcprice", "PriceCharting price: non-English cards aren't priced from TCGplayer"));
+    if (pend) out.push(chip("price pending", "pending", "No price yet: the price service couldn't answer (daily or monthly limit, or an outage). A later add or rebuild retries."));
     if (none) out.push(chip("no price", "noprice", "No price available for this card"));
     return out.join("");
   }
@@ -153,6 +156,7 @@
         return pre + money(e.unitCents) + " · " + esc(p.src) + " · " + esc(p.cond) + " " + esc(p.printing || "") + (p.asOf ? " · as of " + esc(p.asOf) : "") +
           (p.stale ? " · <b>price not current</b>" : "");
       }
+      if (p.pending) return pre + "<b>price pending</b> · " + esc(p.reason || "") + " · retried on the next add or rebuild";
       if (p.state === "none") return pre + "<b>no price</b> · " + esc(p.reason || "");
       return pre + money(e.unitCents) + " · <b>PriceCharting</b>, not condition-adjusted · " + esc(p.reason || "");
     });
