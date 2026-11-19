@@ -249,6 +249,7 @@
       (m.rarity ? "<dt>Rarity</dt><dd>" + esc(m.rarity) + "</dd>" : "") +
       "<dt>Matched</dt><dd>" + esc(m.source) + " " + esc(m.id) + " · " + Math.round(m.confidence * 100) + "% · " + esc(m.method) + "</dd>" +
       (firstSrc(p.images) === "pc" ? '<dt>Image</dt><dd>PriceCharting photo (no card-database image)' + (p.images[0].page ? ' · <a href="' + esc(p.images[0].page) + '" target="_blank" rel="noopener">product page</a>' : "") + "</dd>" : "") + "</dl>";
+    if (window.VB.manage) window.VB.manage.decorate($("zoomInfo"), p.rows);  // add.js: edit / remove, when the local server is up
     $("zoom").hidden = false;
   });
   $("zoom").addEventListener("click", function () { $("zoom").hidden = true; });

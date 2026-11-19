@@ -13,6 +13,7 @@ Virtual Binder turns a [PriceCharting](https://www.pricecharting.com/) collectio
 - **My Binders:** make your own binders, like "Eeveelutions", "Charizards" or "Fire types". See [My Binders](#my-binders).
 - **Value over time:** every build saves a snapshot of your collection's value, so the Value tab can chart it and list your biggest gainers and losers since the last export. PriceCharting doesn't keep that history for you. See [Value over time](#value-over-time).
 - **Set Completion:** pick any of TCGdex's English sets to see every card in it in set-number order, which ones you own (with your PriceCharting value) and which you're missing, and what it would cost to finish the set. See [Set Completion](#set-completion).
+- **Add cards:** search TCGdex by name (with optional set and number), pick a condition and quantity, and save the card to your collection file. You can also edit a card's condition and quantity, or remove it, from its zoom panel. See [Add, edit and remove cards](#add-edit-and-remove-cards).
 - **Image fallbacks:** card images come from TCGdex or the Pokémon TCG API. If neither has an image, the PriceCharting product photo is used and tagged **PC photo**. If that's missing too, the binder shows official artwork or a labeled sleeve. Images that fail to load fall back to the next source automatically.
 - **Prices at each card's own condition:** English cards are priced from TCGplayer market prices (via JustTCG) at the condition in your notes column (no note = Near Mint) and the right printing. A card with no exact price shows a labelled PriceCharting price or "no price", never another condition's. See [Pricing](#pricing).
 
@@ -104,6 +105,24 @@ To map a set yourself, add a line to `SET_MAP` at the top of `scripts/build.py`.
 ```
 
 Entries in `SET_MAP` always win over the automatic match.
+
+## Add, edit and remove cards
+
+The page itself is static, but saving needs a small local server (Python standard library only):
+
+```
+python3 scripts/serve.py            # then open http://127.0.0.1:8123
+```
+
+It listens on this computer only, serves just the site's own `.html`, `.js` and `.css` files (never your CSV or cache), and edits `data/collection.csv` (or `--csv path`).
+
+- **Add cards** tab: search by name, optionally narrowed by set and number (the set filter is applied by TCGdex). Each result shows the image, set, number and rarity. Choose a condition (NM, LP, MP, HP, DMG), a quantity and optional notes, then **Add**.
+- **Edit or remove:** click a card in the Set binder. The zoom panel has a row per owned stack with the condition, quantity, **Save** and **Remove**.
+- **What gets written:** a new row in the PriceCharting export format (id `tcgdex:<card id>`, `Name #Number`, `Pokemon <set>`, quantity, today's date). The condition goes in the notes column the way pricing reads it: `LP`, or `LP - corner whitening` with your own text after it. A note that names a different wear level is refused, because the price would be ambiguous. Changing a quantity scales the row's PriceCharting price and cost basis so per-card amounts stay the same.
+- **Pricing:** nothing is priced when you add a card, so no price API is called. The TCGplayer ID from TCGdex is saved in `data/tcgplayer_ids.json`; the next `python3 scripts/build.py` prices the card at its own condition, and JustTCG is asked only for card and condition pairs the 24 hour price cache doesn't have. A card TCGdex has no TCGplayer ID for is still added; the build looks for its ID the usual way.
+- **Set names:** a card from a set the collection doesn't have yet is written as `Pokemon <TCGdex set name>`. Where PriceCharting spells a set differently (for example "Scarlet & Violet 151" versus TCGdex's "151"), the new cards form their own set group until you make the `console-name` match.
+- **After a change**, run `python3 scripts/build.py` and reload the page. Every change first copies the old file to `data/collection.prev.csv`, one step of undo.
+- The Add cards tab needs a built page (`binder-data.js`), so build once first, even from `data/sample-collection.csv`.
 
 ## Themes
 
@@ -305,6 +324,9 @@ styles.css          binder look
 themes.css          theme colors (Theme menu)
 themes.js           Theme menu and saved choice
 scripts/build.py    CSV -> binder-data.js (Python standard library only)
+scripts/serve.py    local server: the page plus the add / edit / remove API
+scripts/manage/     collection CSV store and the search / add / edit / remove service (no HTTP; an API can wrap it later)
+add.js              Add cards tab and the edit / remove panel
 scripts/pricing/    per-condition pricing: card catalog, pricing service, JustTCG client (see Pricing)
 tests/              unit tests (python3 -m unittest discover -s tests)
 data/sample-collection.csv   made-up example rows to try the site
