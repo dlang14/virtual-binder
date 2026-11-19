@@ -35,6 +35,11 @@ class CatalogCard:
     image: Optional[str] = None
     tcgplayer_id: Optional[str] = None
     marks: Tuple[str, ...] = ()      # stamp / pattern / distribution that make this a special product ("Pokemon Center Exclusive")
+    rarity: Optional[str] = None
+
+
+class CatalogUnavailable(Exception):
+    """The card source could not be reached (as opposed to reached and found nothing)."""
 
 
 @dataclass(frozen=True)
@@ -123,9 +128,29 @@ class CardCatalog:
             sname = (d.get("set") or {}).get("name", "")
             if set_name and not set_matches(set_name, sname):
                 continue
-            out.append(CatalogCard("tcgdex", d["id"], d.get("name", ""), sname, str(d.get("localId", "")),
-                                   (d.get("image") + "/high.webp") if d.get("image") else None, self.tcgplayer_id_in(d)))
+            out.append(self.card_from_detail(d))
         return out
+
+    def card_from_detail(self, d: dict) -> CatalogCard:
+        return CatalogCard("tcgdex", d["id"], d.get("name", ""), (d.get("set") or {}).get("name", ""), str(d.get("localId", "")),
+                           (d.get("image") + "/high.webp") if d.get("image") else None, self.tcgplayer_id_in(d),
+                           rarity=d.get("rarity"))
+
+    def browse(self, name: str, set_name: Optional[str] = None, number: Optional[str] = None,
+               limit: int = 12, offset: int = 0) -> Tuple[List[CatalogCard], int]:
+        """One page of TCGdex cards whose name contains `name` (set filtered by TCGdex itself), and how many match in all.
+        Only the cards on the page are fetched in full; a card seen before comes from the cache. Raises CatalogUnavailable."""
+        q = {"name": name}
+        if number:
+            q["localId"] = norm_number(number)
+        if set_name:
+            q["set.name"] = set_name
+        listing = self._fetch(f"{TCGDEX}/cards?{urllib.parse.urlencode(q)}",
+                              f"dexsearch_{alnum(name)}_{alnum(number)}_{alnum(set_name)}.json")
+        if not isinstance(listing, list):
+            raise CatalogUnavailable("TCGdex did not answer")
+        details = (self.tcgdex_card(b["id"]) for b in listing[offset:offset + limit])
+        return [self.card_from_detail(d) for d in details if d], len(listing)
 
     # -------------------------------------------------------------- PkmnPrices
     def pkmn_search(self, name: str, number: Optional[str], set_names: Sequence[str]) -> Tuple[List[CatalogCard], str, bool]:

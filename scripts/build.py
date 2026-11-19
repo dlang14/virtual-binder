@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pricing import (CardCatalog, IdRegistry, JustTcgClient, PricingService, TtlCache, PRICE_TTL)  # noqa: E402
 from pricing.collection import price_entries  # noqa: E402
 from pricing.net import get_keys  # noqa: E402
+from manage.store import row_keys  # noqa: E402
 
 # PriceCharting console-name -> where the cards live.
 #   ptcg: Pokemon TCG API set ids (first one is the "main" set used for the missing-card view)
@@ -653,8 +654,7 @@ def main():
         return None, 0, ""
 
     entries, unmatched = [], []
-    seen_keys = {}
-    for r in rows:
+    for r, key in zip(rows, row_keys(rows)):
         console = r["console-name"]
         base, variant, num = parse_product(r["product-name"])
         pool = pools.get(console, {})
@@ -722,9 +722,7 @@ def main():
             unmatched.append(e)
         # Stable row key for saved picks: PriceCharting id + row details, plus an occurrence
         # counter for rows that are otherwise identical. Survives re-exports and re-sorting.
-        base_key = "|".join([r["id"], grade, cond, r.get("date-entered", ""), e["folder"]])
-        seen_keys[base_key] = seen_keys.get(base_key, 0) + 1
-        e["key"] = f"{base_key}|{seen_keys[base_key]}"
+        e["key"] = key
         entries.append(e)
 
     sets = []

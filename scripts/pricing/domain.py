@@ -71,6 +71,16 @@ def parse_condition(note: Optional[str]) -> ConditionParse:
     return ConditionParse(None, "ambiguous", f"note {text!r} names several wear levels ({', '.join(c.value for c in found)})")
 
 
+def strip_wear_words(note: Optional[str]) -> str:
+    """The note without its wear words, so a new condition can be written in front of what is left:
+    'LP - corner whitening' -> 'corner whitening'."""
+    text = note or ""
+    for rx in _COND_RES.values():
+        text = re.compile(rx.pattern, re.I).sub(" ", text)
+    text = re.sub(r"\(\s*\)", "", re.sub(r"\s+", " ", text))
+    return text.strip(" -\u2013:/,;")
+
+
 # ---------------------------------------------------------------- printing
 class Printing(Enum):
     NORMAL = "Normal"
