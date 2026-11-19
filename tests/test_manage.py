@@ -12,20 +12,30 @@ import tempfile
 import threading
 import unittest
 from datetime import date
-from http.server import ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler as BaseHTTPRequestHandlerBase, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
-from manage import COLUMNS, CollectionService, CsvCollection, ServiceError, row_keys  # noqa: E402
-from pricing import CardCatalog, CardRef, IdRegistry, JustTcgClient, PricingService, TtlCache, strip_wear_words  # noqa: E402
+import serve  # noqa: E402
+from manage import COLUMNS, CollectionService, CsvCollection, Rebuilder, ServiceError, load_aliases, row_keys  # noqa: E402
+from pricing import (CardCatalog, CardRef, Condition, IdRegistry, JustTcgClient, PricingService, ProviderError, TtlCache,  # noqa: E402
+                     strip_wear_words)
 from pricing.collection import price_entries  # noqa: E402
+from pricing.net import HttpResult, request_json  # noqa: E402
 from serve import STATIC, make_handler  # noqa: E402
 from test_pricing import FakeJustTcg, FakeFetch  # noqa: E402
 
 
-def tcg(card_id, name, number, set_name, pid=None, rarity="Rare"):
-    return {"id": card_id, "name": name, "localId": number, "rarity": rarity, "image": f"https://img.test/{card_id}",
-            "set": {"name": set_name}, "pricing": {"tcgplayer": {"normal": {"productId": pid}}} if pid else {}}
+def tcg(card_id, name, number, set_name, pid=None, rarity="Rare", variants=None):
+    d = {"id": card_id, "name": name, "localId": number, "rarity": rarity, "image": f"https://img.test/{card_id}",
+         "set": {"name": set_name}, "pricing": {"tcgplayer": {"normal": {"productId": pid}}} if pid else {}}
+    if variants:
+        d["variants_detailed"] = variants
+    return d
+
+
+def variant(kind, pid=None, **extra):
+    return {"type": kind, **({"thirdParty": {"tcgplayer": pid}} if pid else {}), **extra}
 
 
 PAGES = {
@@ -35,6 +45,8 @@ PAGES = {
     "dexcard_en_ts-1.json": tcg("ts-1", "Testmon", "1", "Test Set", 9),
     "dexcard_en_ts-2.json": tcg("ts-2", "Testmon ex", "2", "Test Set"),            # TCGdex has no TCGplayer id for this one
     "dexcard_en_xx-1.json": tcg("xx-1", "Testmon", "1", "Other Set", 77),
+    "dexcard_en_ts-3.json": tcg("ts-3", "Testchu", "3", "Test Set", 30, variants=[variant("normal", 30), variant("reverse", 30)]),
+    "dexcard_en_ts-4.json": tcg("ts-4", "Testzam ex", "4", "Test 151", 40, variants=[variant("holo", 40)]),
 }
 ROW = {"id": "1001", "product-name": "Otherchu #5", "console-name": "Pokemon Test Set", "price-in-pennies": "900",
        "include-string": "Ungraded", "condition-string": "Normal wear", "condition-id": "1", "sku": "", "notes": "LP - corner whitening",
@@ -107,7 +119,8 @@ class Search(Base):
         out = self.svc.search("Testmon", "Test Set")
         self.assertEqual(out["total"], 2)
         self.assertEqual(out["results"][0], {"id": "ts-1", "name": "Testmon", "set": "Test Set", "number": "1", "rarity": "Rare",
-                                             "image": "https://img.test/ts-1/low.webp", "tcgplayerId": "9"})
+                                             "image": "https://img.test/ts-1/low.webp", "tcgplayerId": "9",
+                                             "printings": [{"key": "default", "label": "Standard"}]})
         self.assertIsNone(out["results"][1]["tcgplayerId"])
 
     def test_number_and_set_narrow_the_query_on_the_server(self):
@@ -135,9 +148,10 @@ class Add(Base):
     def test_a_new_row_in_the_export_format_with_wear_in_notes(self):
         out = self.svc.add("ts-1", "lp", 2, "corner whitening")
         row, = self.rows()
-        self.assertEqual(out, {"name": "Testmon", "set": "Test Set", "number": "1", "condition": "LP", "qty": 2, "tcgplayerId": "9"})
+        self.assertEqual(out, {"name": "Testmon", "set": "Test Set", "number": "1", "condition": "LP", "qty": 2,
+                               "printing": "Standard", "tcgplayerId": "9"})
         self.assertEqual({k: row[k] for k in ("id", "product-name", "console-name", "notes", "quantity", "date-entered", "price-in-pennies")},
-                         {"id": "tcgdex:ts-1", "product-name": "Testmon #1", "console-name": "Pokemon Test Set",
+                         {"id": "tcgdex:ts-1:default", "product-name": "Testmon #1", "console-name": "Pokemon Test Set",
                           "notes": "LP - corner whitening", "quantity": "2", "date-entered": "2026-11-19", "price-in-pennies": "0"})
         self.assertEqual(list(row), COLUMNS)
 
@@ -219,6 +233,279 @@ class EditRemove(Base):
             self.assertEqual(cm.exception.status, 404)
 
 
+def multi_printing_fake():
+    """JustTCG stand-in whose product has two printings at different prices, so the one picked shows in the price."""
+    class Fake(FakeJustTcg):
+        def __call__(self, url, headers=None, body=None, **kw):
+            self.calls.append(body)
+            return HttpResult(200, {"data": [{"tcgplayerId": i["tcgplayerId"], "variants": [
+                {"condition": "Near Mint", "printing": pr, "price": cents / 100, "priceStatus": "current", "lastUpdated": 1_700_000_000,
+                 "language": "English"} for pr, cents in (("Normal", 100), ("Reverse Holofoil", 500))]}
+                for i in body], "_metadata": {}}, {})
+    return Fake()
+
+
+def priced(row, fake, dir_, ids, pricing_cls=PricingService):
+    """Run one collection row through the real pricing path with a fake JustTCG; returns the entry."""
+    name, number = row["product-name"].rsplit(" #", 1)
+    tag = None
+    if name.endswith("]"):
+        name, tag = name[:-1].rsplit(" [", 1)
+    entry = {"pcId": row["id"], "product": row["product-name"], "console": row["console-name"], "name": name, "variant": tag,
+             "number": number, "notes": row["notes"], "qty": 1, "valueCents": 0, "unitCents": 0}
+    service = pricing_cls(CardCatalog(FakeFetch({})), IdRegistry(ids), TtlCache(os.path.join(dir_, "p.json"), 3600),
+                          JustTcgClient("k", request=fake, pace=0, sleep=lambda s: None))
+    cov = price_entries([entry], service, lambda e: None)
+    return entry, cov
+
+
+class Printings(Base):
+    def test_options_follow_what_tcgdex_lists_and_pricing_can_tell_apart(self):
+        card = lambda *v: CardCatalog.printings_in({"variants_detailed": list(v), "pricing": {"tcgplayer": {"holofoil": {"productId": 7}}}})
+        opts = card(variant("normal", 1), variant("reverse", 1))
+        self.assertEqual([(o.key, o.label, o.tag, o.tcgplayer_id) for o in opts],
+                         [("normal", "Normal", None, "1"), ("reverse", "Reverse Holo", "Reverse Holo", "1")])
+        opts = card(variant("holo", 2, subtype="unlimited"), variant("holo", 3, stamp=["1st-edition"], subtype="shadowless"),
+                    variant("holo", 4, stamp=["1st-edition"]), variant("holo", 5, subtype="shadowless"),
+                    variant("holo", 6, stamp=["staff"]), variant("holo", 8, size="jumbo"))
+        self.assertEqual([(o.key, o.tag, o.tcgplayer_id) for o in opts], [("holo", "Holo", "2"), ("1st-holo", "1st Edition", "3")])
+        self.assertEqual(card(variant("normal", 1), variant("holo", 2))[0].tag, "Normal")   # both exist: the tag says which
+        only = card(variant("holo"))                 # no id on the variant, one printing: the card's own id
+        self.assertEqual((only[0].tag, only[0].tcgplayer_id), ("Holo", "7"))
+        self.assertEqual([(o.key, o.tcgplayer_id) for o in card()], [("default", "7")])       # nothing detailed: one standard printing
+
+    def test_search_offers_the_printings(self):
+        out = CollectionService._view(CardCatalog(self.fetch).card_from_detail(PAGES["dexcard_en_ts-3.json"]))
+        self.assertEqual(out["printings"], [{"key": "normal", "label": "Normal"}, {"key": "reverse", "label": "Reverse Holo"}])
+
+    def test_the_choice_is_written_where_pricing_reads_it_and_gets_its_own_registry_key(self):
+        self.svc.add("ts-3", "NM", 1, "", "reverse")
+        row, = self.rows()
+        self.assertEqual((row["product-name"], row["id"]), ("Testchu [Reverse Holo] #3", "tcgdex:ts-3:reverse"))
+        self.assertEqual(IdRegistry(self.ids).get(CardRef("Testchu", "3", "Pokemon Test Set", "Reverse Holo").key)["id"], "30")
+        self.assertIsNone(IdRegistry(self.ids).get(CardRef("Testchu", "3", "Pokemon Test Set").key))
+
+    def test_each_printing_is_priced_from_its_own_justtcg_variant(self):
+        for printing in ("normal", "reverse", None):
+            self.svc.add("ts-3", "NM", 1, "", printing)
+        entries = [priced(r, multi_printing_fake(), self.dir.name, self.ids)[0] for r in self.rows()]
+        self.assertEqual([(e["price"]["printing"], e["unitCents"]) for e in entries],
+                         [("Normal", 100), ("Reverse Holofoil", 500), ("Normal", 100)])   # no choice = the default (first) printing
+
+    def test_the_same_card_in_two_printings_gets_two_distinct_row_keys(self):
+        self.svc.add("ts-3", "NM", 1, "", "normal")
+        self.svc.add("ts-3", "NM", 1, "", "reverse")
+        keys = row_keys(self.rows())
+        self.assertEqual(len(set(k.rsplit("|", 1)[0] for k in keys)), 2)
+
+    def test_an_unknown_printing_is_refused_and_nothing_is_written(self):
+        with self.assertRaises(ServiceError) as cm:
+            self.svc.add("ts-3", "NM", 1, "", "1st-holo")
+        self.assertEqual(cm.exception.status, 400)
+        self.assertIn("Reverse Holo", str(cm.exception))
+        self.assertFalse(os.path.exists(self.csv))
+
+
+class Aliases(Base):
+    def setUp(self):
+        super().setUp()
+        self.svc.aliases = {"test151": "Test Violet 151"}
+
+    def test_a_listed_set_lands_in_the_collections_own_set_group(self):
+        self.svc.add("ts-4", "NM")
+        row, = self.rows()
+        self.assertEqual(row["console-name"], "Pokemon Test Violet 151")
+        self.assertEqual(IdRegistry(self.ids).get(CardRef("Testzam ex", "4", "Pokemon Test Violet 151", "Holo").key)["id"], "40")
+
+    def test_names_match_without_regard_to_case_accents_or_punctuation(self):
+        self.svc.aliases = load_aliases(os.path.join(os.path.dirname(serve.__file__), "manage", "set_aliases.json"))
+        for name in ("151", "Pokémon GO", "pokemon go"):
+            self.assertTrue(self.svc._console(name).startswith("Pokemon "), name)
+        self.assertEqual(self.svc._console("151"), "Pokemon Scarlet & Violet 151")
+        self.assertEqual(self.svc._console("SWSH Black Star Promos"), "Pokemon Promo")
+
+    def test_an_unlisted_set_is_unchanged(self):
+        self.assertEqual(self.svc._console("Base Set"), "Pokemon Base Set")
+
+    def test_the_committed_table_is_well_formed(self):
+        with open(os.path.join(os.path.dirname(serve.__file__), "manage", "set_aliases.json"), encoding="utf-8") as f:
+            raw = json.load(f)
+        table = {k: v for k, v in raw.items() if not k.startswith("_")}
+        self.assertGreaterEqual(len(table), 3)
+        self.assertTrue(all(isinstance(v, str) and v.strip() and not v.startswith("Pokemon ") for v in table.values()))
+        self.assertEqual(len(load_aliases(os.path.join(os.path.dirname(serve.__file__), "manage", "set_aliases.json"))), len(table))
+
+
+class PricePending(Base):
+    def run_one(self, fake):
+        self.svc.add("ts-1", "NM")
+        return priced(self.rows()[0], fake, self.dir.name, self.ids)
+
+    def test_a_spent_quota_is_pending_not_no_price_and_a_later_run_clears_it(self):
+        entry, cov = self.run_one(FakeJustTcg(fail=429))
+        self.assertEqual((entry["price"]["state"], entry["price"].get("pending")), ("none", True))
+        self.assertEqual((cov.pending, cov.priced), (1, 0))
+        self.assertIn("1 row(s) wait on a price", cov.format())
+        self.assertEqual(cov.to_json()["pending"], 1)
+        entry, cov = priced(self.rows()[0], FakeJustTcg(), self.dir.name, self.ids)   # the next build gets an answer
+        self.assertEqual((entry["price"]["state"], entry["price"].get("pending"), cov.pending), ("priced", None, 0))
+
+    def test_outages_and_the_build_budget_are_pending_but_a_rejected_key_is_not(self):
+        for fail, pending in ((429, True), (503, True), (401, False), (403, False)):
+            out = JustTcgClient("k", request=FakeJustTcg(fail=fail), pace=0, sleep=lambda s: None).fetch([("1", Condition.NM)])
+            self.assertEqual(out[("1", Condition.NM)].pending, pending, fail)
+        down = JustTcgClient("k", request=lambda *a, **kw: HttpResult(0, {"error": "URLError"}, {}), pace=0).fetch([("1", Condition.NM)])
+        self.assertTrue(down[("1", Condition.NM)].pending)       # network error
+        out = JustTcgClient("k", max_requests=0, request=FakeJustTcg()).fetch([("1", Condition.NM)])
+        self.assertTrue(out[("1", Condition.NM)].pending)
+        self.assertFalse(ProviderError("x").pending)
+
+    def test_pending_is_not_cached_so_the_retry_costs_one_request(self):
+        fake = FakeJustTcg(fail=429)
+        self.run_one(fake)
+        ok = FakeJustTcg()
+        priced(self.rows()[0], ok, self.dir.name, self.ids)
+        self.assertEqual(len(ok.calls), 1)
+
+
+class Quota(unittest.TestCase):
+    def serve(self, body, status=429):
+        hits = []
+
+        class H(BaseHTTPRequestHandlerBase):
+            def do_POST(self):
+                hits.append(1)
+                self.rfile.read(int(self.headers.get("Content-Length") or 0))
+                data = json.dumps(body).encode()
+                self.send_response(status)
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def log_message(self, *a):
+                pass
+        httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        threading.Thread(target=httpd.serve_forever, daemon=True).start()
+        self.addCleanup(httpd.server_close)
+        self.addCleanup(httpd.shutdown)
+        return f"http://127.0.0.1:{httpd.server_address[1]}/", hits
+
+    def test_a_spent_daily_or_monthly_quota_is_not_retried_but_a_rate_limit_is(self):
+        for code, tries in (("DAILY_LIMIT_EXCEEDED", 1), ("REQUEST_LIMIT_EXCEEDED", 1), ("RATE_LIMIT_EXCEEDED", 3)):
+            url, hits = self.serve({"error": "x", "code": code})
+            res = request_json(url, body=[], sleep=lambda s: None, no_retry_429=("DAILY_LIMIT_EXCEEDED", "REQUEST_LIMIT_EXCEEDED"))
+            self.assertEqual((res.status, len(hits)), (429, tries), code)
+
+
+class Registry(Base):
+    def test_saving_keeps_ids_another_writer_saved_meanwhile(self):
+        mine = IdRegistry(self.ids)
+        theirs = IdRegistry(self.ids)
+        theirs.put("a|1", "5", "tcgdex")
+        theirs.put_miss("b|2", "no match")
+        theirs.save()
+        mine.put("c|3", "6", "tcgdex")
+        mine.save()
+        self.assertEqual(sorted(IdRegistry(self.ids).cards), ["a|1", "c|3"])
+        self.assertIn("b|2", IdRegistry(self.ids).misses)
+        theirs.put("b|2", "7", "tcgdex")   # a card found later replaces its recorded miss
+        theirs.save()
+        self.assertNotIn("b|2", IdRegistry(self.ids).misses)
+
+
+class RebuildAfterChange(Base):
+    def test_every_change_asks_for_a_rebuild_and_a_refused_one_does_not(self):
+        calls = []
+        self.svc.on_change = lambda: calls.append(1)
+        self.svc.add("ts-1", "NM")
+        key = row_keys(self.rows())[0]
+        self.svc.update(key, qty=2)
+        self.svc.remove(key)
+        self.assertEqual(len(calls), 3)
+        for bad in (lambda: self.svc.add("ts-1", "ZZ"), lambda: self.svc.update(key, qty=1), lambda: self.svc.remove(key)):
+            with self.assertRaises(ServiceError):
+                bad()
+        self.assertEqual(len(calls), 3)
+
+    def test_a_burst_runs_one_build_and_one_more_and_never_two_at_once(self):
+        gate, started, live, peak, runs = threading.Event(), threading.Event(), [0], [0], []
+
+        def run():
+            live[0] += 1
+            peak[0] = max(peak[0], live[0])
+            runs.append(1)
+            started.set()
+            gate.wait(5)
+            live[0] -= 1
+            return True, "", len(runs) - 1
+        rb = Rebuilder(run)
+        rb.request()
+        self.assertTrue(started.wait(5))
+        self.assertEqual(rb.status()["state"], "running")
+        for _ in range(5):
+            rb.request()
+        gate.set()
+        rb.wait()
+        self.assertEqual((len(runs), peak[0]), (2, 1))
+        self.assertEqual(rb.status(), {"state": "idle", "ok": True, "message": "", "pending": 1, "builds": 2})
+
+    def test_a_crashing_build_is_reported_and_the_next_request_still_runs(self):
+        outcomes = [RuntimeError("boom"), (True, "", 0)]
+
+        def run():
+            o = outcomes.pop(0)
+            if isinstance(o, Exception):
+                raise o
+            return o
+        rb = Rebuilder(run)
+        rb.request()
+        rb.wait()
+        self.assertEqual((rb.status()["state"], rb.status()["ok"]), ("idle", False))
+        self.assertIn("boom", rb.status()["message"])
+        rb.request()
+        rb.wait()
+        self.assertTrue(rb.status()["ok"])
+
+
+class BuildRunner(Base):
+    def fake_run(self, returncode, out):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return type("P", (), {"returncode": returncode, "stdout": out, "stderr": ""})()
+        return run, calls
+
+    def test_no_collection_yet_builds_the_empty_page_without_history(self):
+        run, calls = self.fake_run(0, "ok\n")
+        old, serve.subprocess.run = serve.subprocess.run, run
+        self.addCleanup(setattr, serve.subprocess, "run", old)
+        ok, message, pending = serve.build_runner(self.csv, serve.AFTER_CHANGE)()
+        cmd = calls[0]
+        self.assertEqual((ok, pending), (True, 0))
+        self.assertNotEqual(cmd[2], self.csv)
+        self.assertEqual(read(cmd[2]).split(",")[:2], ["id", "product-name"])
+        self.assertIn("--no-history", cmd)
+        self.assertFalse(os.path.exists(self.csv))
+
+    def test_a_real_collection_is_built_cheaply_and_pending_rows_are_reported(self):
+        self.write_csv([ROW])
+        run, calls = self.fake_run(0, "x\n  2 row(s) wait on a price (JustTCG limit or outage); the next build or add retries them\n")
+        old, serve.subprocess.run = serve.subprocess.run, run
+        self.addCleanup(setattr, serve.subprocess, "run", old)
+        self.assertEqual(serve.build_runner(self.csv, serve.AFTER_CHANGE)(), (True, "", 2))
+        self.assertEqual(calls[0][2], self.csv)
+        self.assertIn("--price-new-only", calls[0])
+        self.assertEqual(calls[0][calls[0].index("--max-justtcg-requests") + 1], "3")
+        self.assertNotIn("--no-history", calls[0])
+
+    def test_a_failed_build_reports_its_last_line(self):
+        run, _ = self.fake_run(1, "a\nTraceback\nValueError: bad\n")
+        old, serve.subprocess.run = serve.subprocess.run, run
+        self.addCleanup(setattr, serve.subprocess, "run", old)
+        self.assertEqual(serve.build_runner(self.csv)(), (False, "ValueError: bad", 0))
+
+
 class Server(Base):
     def setUp(self):
         super().setUp()
@@ -254,6 +541,12 @@ class Server(Base):
         self.assertEqual(self.rows()[0]["quantity"], "4")
         self.assertEqual(self.call("DELETE", "/api/collection/entries/" + quote(key))[0], 200)
         self.assertEqual(self.rows(), [])
+
+    def test_printing_goes_through_and_the_build_status_is_served(self):
+        self.assertEqual(self.call("GET", "/api/build/status")[1], {"state": "idle"})
+        status, out = self.call("POST", "/api/collection/entries", {"cardId": "ts-3", "condition": "NM", "printing": "reverse"})
+        self.assertEqual((status, out["printing"]), (200, "Reverse Holo"))
+        self.assertEqual(self.call("POST", "/api/collection/entries", {"cardId": "ts-3", "condition": "NM", "printing": "x"})[0], 400)
 
     def test_errors_come_back_as_json_with_the_right_status(self):
         self.assertEqual(self.call("POST", "/api/collection/entries", {"cardId": "ts-1", "condition": "ZZ"})[0], 400)

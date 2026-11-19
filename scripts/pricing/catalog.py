@@ -19,10 +19,20 @@ from .net import request_json
 from .store import TtlCache
 
 TCGDEX = "https://api.tcgdex.net/v2/en"
+_KINDS = {"normal": ("Normal", None), "holo": ("Holo", "Holo"), "reverse": ("Reverse Holo", "Reverse Holo")}  # TCGdex type -> label, tag
 PKMNPRICES = "https://api.pkmnprices.com/v1"
 
 # fetch_json(url, cache_name) -> parsed JSON or None. The build passes its own cached fetcher.
 FetchJson = Callable[[str, str], object]
+
+
+@dataclass(frozen=True)
+class PrintingOption:
+    """One printing of a card that the price sources can tell apart."""
+    key: str                         # what a client sends back: "holo", "reverse", "1st-normal"
+    label: str                       # "Reverse Holo"
+    tag: Optional[str]               # the [bracket] tag in the collection row's product name that the pricing step reads
+    tcgplayer_id: Optional[str]      # TCGplayer product of this printing (1st Edition can be a different product)
 
 
 @dataclass(frozen=True)
@@ -36,6 +46,7 @@ class CatalogCard:
     tcgplayer_id: Optional[str] = None
     marks: Tuple[str, ...] = ()      # stamp / pattern / distribution that make this a special product ("Pokemon Center Exclusive")
     rarity: Optional[str] = None
+    printings: Tuple[PrintingOption, ...] = ()
 
 
 class CatalogUnavailable(Exception):
@@ -134,7 +145,34 @@ class CardCatalog:
     def card_from_detail(self, d: dict) -> CatalogCard:
         return CatalogCard("tcgdex", d["id"], d.get("name", ""), (d.get("set") or {}).get("name", ""), str(d.get("localId", "")),
                            (d.get("image") + "/high.webp") if d.get("image") else None, self.tcgplayer_id_in(d),
-                           rarity=d.get("rarity"))
+                           rarity=d.get("rarity"), printings=self.printings_in(d))
+
+    @classmethod
+    def printings_in(cls, d: dict) -> Tuple[PrintingOption, ...]:
+        """The printings TCGdex lists for a card that pricing can price faithfully: Normal, Holo, Reverse Holo and their
+        1st Edition versions, one each. Stamped promos, jumbo cards and other special products are left out (they are
+        separate TCGplayer products the price sources can't identify), and so are older-print variants such as
+        shadowless; when TCGdex lists several 1st Edition products the first is used."""
+        found: dict = {}
+        for v in d.get("variants_detailed") or []:
+            stamp = v.get("stamp") or []
+            first = stamp == ["1st-edition"]
+            if v.get("type") not in _KINDS or v.get("size") not in (None, "standard") or (stamp and not first) \
+                    or (not first and v.get("subtype") not in (None, "unlimited")):
+                continue
+            pid = (v.get("thirdParty") or {}).get("tcgplayer")
+            if (v["type"], first) not in found or (pid and not found[(v["type"], first)]):
+                found[(v["type"], first)] = str(pid) if pid else None
+        extra_normal_tag = any(kind == "holo" and not first for kind, first in found)  # normal and holo both exist: say which
+        out = [PrintingOption(("1st-" if first else "") + kind, ("1st Edition " if first else "") + _KINDS[kind][0],
+                              "1st Edition" if first else ("Normal" if kind == "normal" and extra_normal_tag else _KINDS[kind][1]),
+                              found[(kind, first)])
+               for first in (False, True) for kind in _KINDS if (kind, first) in found]
+        if not out:
+            return (PrintingOption("default", "Standard", None, cls.tcgplayer_id_in(d)),)
+        if len(out) == 1 and not out[0].tcgplayer_id:
+            out[0] = PrintingOption(out[0].key, out[0].label, out[0].tag, cls.tcgplayer_id_in(d))
+        return tuple(out)
 
     def browse(self, name: str, set_name: Optional[str] = None, number: Optional[str] = None,
                limit: int = 12, offset: int = 0) -> Tuple[List[CatalogCard], int]:

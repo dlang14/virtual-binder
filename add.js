@@ -1,12 +1,12 @@
-// Add cards: search TCGdex, pick condition and quantity, save to data/collection.csv through scripts/serve.py.
+// Add cards: search TCGdex, pick printing, condition and quantity, save to data/collection.csv through scripts/serve.py.
 // Also adds an edit / remove block to the card zoom panel. Needs the local server; on a plain file:// page it says so.
-// Saved changes show up (and get priced) after the next `python3 scripts/build.py`.
+// The server prices and rebuilds the page data after each change; the banner follows that build, then offers a reload.
 (function () {
   "use strict";
   var VB = window.VB; if (!VB) return; // no binder-data.js yet
   var $ = VB.$, esc = VB.esc;
   var CONDS = [["NM", "Near Mint"], ["LP", "Lightly Played"], ["MP", "Moderately Played"], ["HP", "Heavily Played"], ["DMG", "Damaged"]];
-  var view = $("addView"), up = false, drawn = null, changes = 0, shown = [];
+  var view = $("addView"), up = false, drawn = null, changes = 0, shown = [], build = null, timer = null;
 
   function api(method, path, body) {
     return fetch(path, { method: method, headers: { "Content-Type": "application/json" }, body: body ? JSON.stringify(body) : undefined })
@@ -18,8 +18,25 @@
     }).join("");
   }
   function banner() {
-    return changes ? '<p class="add-note">' + changes + " change" + (changes > 1 ? "s" : "") + " saved to your collection file. Run <code>python3 scripts/build.py</code>, then reload this page to see " +
-      "and price them.</p>" : "";
+    if (!changes) return "";
+    var busy = !build || build.state === "running", done = !busy && build.ok;
+    return '<p class="add-note" role="status">' + changes + " change" + (changes > 1 ? "s" : "") + " saved to your collection file. " +
+      (busy ? "Pricing them and updating your pages…" :
+        !done ? "Updating your pages failed (" + esc(build.message) + "); run <code>python3 scripts/build.py</code> to see why." :
+        "Your pages are up to date." + (build.pending ? " " + build.pending + " card" + (build.pending > 1 ? "s show" : " shows") +
+          " “price pending”: the price service's limit or an outage stopped the lookup, and the next add or rebuild retries it." : "")) +
+      (done ? ' <button type="button" class="link" id="reload">Reload to see it</button>' : "") + "</p>";
+  }
+  function changed() {  // a change was saved: show the banner and follow the rebuild the server started
+    changes++; build = null; clearTimeout(timer); track();
+  }
+  function track() {
+    if ($("addBanner")) $("addBanner").innerHTML = banner();
+    api("GET", "/api/build/status").then(function (s) {
+      build = s;
+      if ($("addBanner")) $("addBanner").innerHTML = banner();
+      if (s.state === "running") timer = setTimeout(track, 1500);
+    }).catch(function () { timer = setTimeout(track, 3000); });
   }
   function show() { if (drawn !== up) shell(); }  // keep the search results when you come back to the tab
   function shell() {
@@ -50,18 +67,21 @@
       (c.image ? '<img loading="lazy" src="' + esc(c.image) + '" alt="' + esc(c.name) + '">' : '<div class="noimg">No image</div>') +
       "<div><h3>" + esc(c.name) + "</h3><div class=\"meta\">" + esc(c.set) + " · #" + esc(c.number) + (c.rarity ? " · " + esc(c.rarity) : "") + "</div>" +
       '<div class="meta">' + (c.tcgplayerId ? "TCGplayer ID " + esc(c.tcgplayerId) : "No TCGplayer ID in TCGdex yet; the build will look for one") + "</div>" +
-      '<div class="add-ctl"><select aria-label="Condition">' + condOptions("NM") + '</select><input type="number" aria-label="Quantity" min="1" max="999" value="1">' +
-      '<input type="text" aria-label="Notes" placeholder="Notes (optional)" maxlength="200"><button type="button" data-add>Add</button></div>' +
+      '<div class="add-ctl"><select aria-label="Printing" data-f="printing">' + c.printings.map(function (p) {
+        return '<option value="' + esc(p.key) + '">' + esc(p.label) + "</option>"; }).join("") + '</select>' +
+      '<select aria-label="Condition" data-f="condition">' + condOptions("NM") + '</select><input type="number" aria-label="Quantity" data-f="qty" min="1" max="999" value="1">' +
+      '<input type="text" aria-label="Notes" data-f="notes" placeholder="Notes (optional)" maxlength="200"><button type="button" data-add>Add</button></div>' +
       '<div class="add-msg" role="status"></div></div></div>';
   }
-  function added(card, c, qty) { changes++; $("addBanner").innerHTML = banner(); card.querySelector(".add-msg").textContent = "Added ×" + qty + " " + c + "."; }
+  function added(card, r) { changed(); card.querySelector(".add-msg").textContent = "Added ×" + r.qty + " " + r.condition + " · " + r.printing + "."; }
 
   if (view) view.addEventListener("click", function (ev) {
+    if (ev.target.id === "reload") return location.reload();
     var b = ev.target.closest("button[data-add]"); if (!b) return;
-    var card = b.closest(".add-card"), q = card.querySelectorAll(".add-ctl select, .add-ctl input"), msg = card.querySelector(".add-msg");
+    var card = b.closest(".add-card"), f = function (n) { return card.querySelector('[data-f="' + n + '"]').value; }, msg = card.querySelector(".add-msg");
     b.disabled = true;
-    api("POST", "/api/collection/entries", { cardId: card.getAttribute("data-id"), condition: q[0].value, qty: parseInt(q[1].value, 10), notes: q[2].value })
-      .then(function (r) { added(card, r.condition, r.qty); })
+    api("POST", "/api/collection/entries", { cardId: card.getAttribute("data-id"), printing: f("printing"), condition: f("condition"), qty: parseInt(f("qty"), 10), notes: f("notes") })
+      .then(function (r) { added(card, r); })
       .catch(function (e) { msg.textContent = e.message; })
       .then(function () { b.disabled = false; });
   });
@@ -87,8 +107,8 @@
         : api("PATCH", "/api/collection/entries/" + key, { qty: parseInt(row.querySelector("input").value, 10), condition: sel && sel.value ? sel.value : undefined });
       if (!req) return;
       req.then(function () {
-        changes++; if ($("addBanner")) $("addBanner").innerHTML = banner();
-        row.innerHTML = "<span>" + (rm ? "Removed." : "Saved.") + " Rebuild (<code>python3 scripts/build.py</code>) and reload to update the binder.</span>";
+        changed();
+        row.innerHTML = "<span>" + (rm ? "Removed." : "Saved.") + " The page data is updating; reload in a moment to see it.</span>";
       }).catch(function (e) { msg.textContent = e.message; });
     });
   }

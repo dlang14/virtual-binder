@@ -9,22 +9,30 @@ never your CSV or cache. The routes are thin wrappers over manage.CollectionServ
 
     GET    /api/health
     GET    /api/catalog/search?q=&set=&number=&offset=
-    POST   /api/collection/entries            {"cardId", "condition", "qty", "notes"}
+    POST   /api/collection/entries            {"cardId", "condition", "qty", "notes", "printing"}
     PATCH  /api/collection/entries/<row key>  {"condition"?, "qty"?}
     DELETE /api/collection/entries/<row key>
+    GET    /api/build/status                  the page rebuild that follows each change
+
+Every change rebuilds binder-data.js in the background (scripts/build.py --price-new-only, so only never-priced cards
+cost a JustTCG request). The first start with no page builds one, from an empty collection if there is no CSV yet.
 """
-import argparse, json, os, re, sys, time, urllib.parse
+import argparse, json, os, re, subprocess, sys, tempfile, time, urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from manage import CollectionService, CsvCollection, ServiceError  # noqa: E402
+from manage import COLUMNS, CollectionService, CsvCollection, Rebuilder, ServiceError, load_aliases  # noqa: E402
 from pricing import CardCatalog, IdRegistry  # noqa: E402
 from pricing.net import request_json  # noqa: E402
 
 STATIC = re.compile(r"^[A-Za-z0-9_.-]+\.(html|js|css)$")
 TYPES = {"html": "text/html; charset=utf-8", "js": "text/javascript; charset=utf-8", "css": "text/css; charset=utf-8"}
 ENTRIES = "/api/collection/entries/"
+BUILD = os.path.join(ROOT, "scripts", "build.py")
+PENDING = re.compile(r"(\d+) row\(s\) wait on a price")
+# After a change: price only cards never priced before, and cap the requests, so one add never costs a collection refresh.
+AFTER_CHANGE = ["--price-new-only", "--max-justtcg-requests", "3", "--max-pkmnprices-requests", "3"]
 
 
 def cached_fetcher(cache_dir):
@@ -45,11 +53,30 @@ def cached_fetcher(cache_dir):
     return fetch
 
 
-def make_service(csv_path, ids_path, cache_dir):
-    return CollectionService(CardCatalog(cached_fetcher(cache_dir)), lambda: IdRegistry(ids_path), CsvCollection(csv_path))
+def build_runner(csv_path, extra=()):
+    """run() for the Rebuilder: scripts/build.py on the collection (or an empty one while there is no CSV yet)."""
+    def run():
+        source, flags = csv_path, list(extra)
+        if not os.path.exists(csv_path):   # nothing added yet: build the empty page, and leave no history snapshot behind
+            empty = os.path.join(tempfile.gettempdir(), "virtual-binder-empty.csv")
+            with open(empty, "w", encoding="utf-8", newline="") as f:
+                f.write(",".join(COLUMNS) + "\n")
+            source, flags = empty, flags + ["--no-history"]
+        p = subprocess.run([sys.executable, BUILD, source, *flags], capture_output=True, text=True, timeout=900)
+        out = p.stdout + p.stderr
+        pending = PENDING.search(out)
+        lines = [ln for ln in out.splitlines() if ln.strip()]
+        return p.returncode == 0, "" if p.returncode == 0 else (lines[-1] if lines else "build failed"), int(pending.group(1)) if pending else 0
+    return run
 
 
-def make_handler(service, web_root=ROOT):
+def make_service(csv_path, ids_path, cache_dir, rebuilder=None):
+    aliases = load_aliases(os.path.join(os.path.dirname(os.path.abspath(__file__)), "manage", "set_aliases.json"))
+    return CollectionService(CardCatalog(cached_fetcher(cache_dir)), lambda: IdRegistry(ids_path), CsvCollection(csv_path),
+                             aliases=aliases, on_change=rebuilder.request if rebuilder else (lambda: None))
+
+
+def make_handler(service, web_root=ROOT, rebuilder=None):
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, fmt, *args):
             sys.stderr.write("%s %s\n" % (self.command, self.path.split("?")[0]))
@@ -97,10 +124,13 @@ def make_handler(service, web_root=ROOT):
             q = dict(urllib.parse.parse_qsl(url.query))
             if (method, url.path) == ("GET", "/api/health"):
                 return {"ok": True}
+            if (method, url.path) == ("GET", "/api/build/status"):
+                return rebuilder.status() if rebuilder else {"state": "idle"}
             if (method, url.path) == ("GET", "/api/catalog/search"):
                 return service.search(q.get("q", ""), q.get("set", ""), q.get("number", ""), offset=max(int(q.get("offset", 0) or 0), 0))
             if (method, url.path) == ("POST", ENTRIES.rstrip("/")):
-                return service.add(body.get("cardId", ""), body.get("condition"), body.get("qty", 1), str(body.get("notes") or ""))
+                return service.add(body.get("cardId", ""), body.get("condition"), body.get("qty", 1), str(body.get("notes") or ""),
+                                   body.get("printing") or None)
             if url.path.startswith(ENTRIES):
                 key = urllib.parse.unquote(url.path[len(ENTRIES):])
                 if method == "PATCH":
@@ -130,8 +160,14 @@ def main():
     ap.add_argument("--port", type=int, default=8123)
     ap.add_argument("--csv", default=os.path.join(ROOT, "data", "collection.csv"))
     args = ap.parse_args()
-    service = make_service(args.csv, os.path.join(ROOT, "data", "tcgplayer_ids.json"), os.path.join(ROOT, "data", "cache"))
-    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(service))
+    rebuilder = Rebuilder(build_runner(args.csv, AFTER_CHANGE))
+    service = make_service(args.csv, os.path.join(ROOT, "data", "tcgplayer_ids.json"), os.path.join(ROOT, "data", "cache"), rebuilder)
+    if not os.path.exists(os.path.join(ROOT, "binder-data.js")):   # first start: build the page before serving it
+        print("No page built yet; building it first (about a minute the first time)...", flush=True)
+        ok, message, _ = build_runner(args.csv)()
+        if not ok:
+            sys.exit(f"The first build failed: {message}")
+    server = ThreadingHTTPServer(("127.0.0.1", args.port), make_handler(service, ROOT, rebuilder))
     print(f"Virtual Binder: http://127.0.0.1:{args.port}  (collection: {args.csv}; Ctrl+C to stop)")
     try:
         server.serve_forever()

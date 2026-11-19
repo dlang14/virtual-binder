@@ -52,6 +52,7 @@ class CsvCollection:
     def _commit(self, fieldnames, rows, newline) -> None:
         if os.path.exists(self.path):
             shutil.copyfile(self.path, os.path.splitext(self.path)[0] + ".prev.csv")
+        os.makedirs(os.path.dirname(os.path.abspath(self.path)), exist_ok=True)   # a fresh clone has no data/ folder yet
         tmp = self.path + ".tmp"
         with open(tmp, "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=fieldnames, lineterminator=newline)

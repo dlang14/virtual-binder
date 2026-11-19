@@ -1,16 +1,20 @@
 """Collection operations behind a small, HTTP-free interface: search the catalog, add a card, edit it, remove it.
 
 Each method takes plain values and returns plain dicts, and failures raise ServiceError(status, message), so a local
-server today (scripts/serve.py) or an API route later is a thin wrapper. Nothing here calls a price API: an added card
-is priced by the next build, which asks JustTCG only for what its 24 h price cache lacks.
+server today (scripts/serve.py) or an API route later is a thin wrapper. Nothing here calls a price API: after every change
+the on_change callback runs (the server passes its rebuilder), and that build prices the new card, asking JustTCG only for
+what its cache lacks.
 """
 from __future__ import annotations
 
+import json
 import re
 from datetime import date
-from typing import Callable, Optional
+from typing import Callable, Dict, Optional
 
-from pricing import CardCatalog, CardRef, CatalogCard, CatalogUnavailable, Condition, IdRegistry, parse_condition, strip_wear_words
+from pricing import (CardCatalog, CardRef, CatalogCard, CatalogUnavailable, Condition, IdRegistry, PrintingOption, parse_condition,
+                     strip_wear_words)
+from pricing.domain import alnum
 from pricing.catalog import set_score
 
 from .store import CsvCollection, Row
@@ -51,11 +55,19 @@ def _note(cond: Condition, extra: str) -> str:
     return note
 
 
+def load_aliases(path: str) -> Dict[str, str]:
+    """scripts/manage/set_aliases.json as {normalized TCGdex set name: PriceCharting set name}; keys starting with _ are comments."""
+    with open(path, encoding="utf-8") as f:
+        return {alnum(k): v for k, v in json.load(f).items() if not k.startswith("_")}
+
+
 class CollectionService:
     def __init__(self, catalog: CardCatalog, open_registry: Callable[[], IdRegistry], store: CsvCollection,
-                 today: Callable[[], date] = date.today):
+                 today: Callable[[], date] = date.today, aliases: Optional[Dict[str, str]] = None,
+                 on_change: Callable[[], None] = lambda: None):
         # open_registry is called per add, so ids a build saved in the meantime are never overwritten
         self.catalog, self.open_registry, self.store, self.today = catalog, open_registry, store, today
+        self.aliases, self.on_change = aliases or {}, on_change
 
     # ---------------------------------------------------------- search
     def search(self, name: str, set_name: str = "", number: str = "", limit: int = 12, offset: int = 0) -> dict:
@@ -71,30 +83,44 @@ class CollectionService:
     def _view(c: CatalogCard) -> dict:
         thumb = c.image.rsplit("/", 1)[0] + "/low.webp" if c.image else None
         return {"id": c.card_id, "name": c.name, "set": c.set_name, "number": c.number, "rarity": c.rarity,
-                "image": thumb, "tcgplayerId": c.tcgplayer_id}
+                "image": thumb, "tcgplayerId": c.tcgplayer_id, "printings": [{"key": o.key, "label": o.label} for o in c.printings]}
 
     # ---------------------------------------------------------- add
-    def add(self, card_id: str, condition, qty=1, notes: str = "") -> dict:
+    def add(self, card_id: str, condition, qty=1, notes: str = "", printing: Optional[str] = None) -> dict:
         cond = _condition(condition)
         qty, note = _qty(qty), _note(cond, notes)
         detail = self.catalog.tcgdex_card(card_id) if CARD_ID.match(str(card_id)) else None
         if not detail:
             raise ServiceError(404, "that card was not found on TCGdex")
         card = self.catalog.card_from_detail(detail)
+        option = self._printing(card, printing)
         console = self._console(card.set_name)
-        if card.tcgplayer_id:  # the pricing step finds the id here, so the build never searches for this card again
+        if option.tcgplayer_id:  # the pricing step finds the id here, so the build never searches for this card again
             registry = self.open_registry()
-            registry.put(CardRef(card.name, card.number, console).key, card.tcgplayer_id, "tcgdex", card.name)
+            registry.put(CardRef(card.name, card.number, console, option.tag).key, option.tcgplayer_id, "tcgdex", card.name)
             registry.save()
+        tag = f" [{option.tag}]" if option.tag else ""   # the printing, where the pricing step reads it
         self.store.append({
-            "id": f"tcgdex:{card.card_id}", "product-name": f"{card.name} #{card.number}", "console-name": console,
+            "id": f"tcgdex:{card.card_id}:{option.key}", "product-name": f"{card.name}{tag} #{card.number}", "console-name": console,
             "price-in-pennies": "0", "include-string": "Ungraded", "condition-string": "Normal wear", "condition-id": "1",
             "notes": note, "cost-basis-in-pennies": "0", "quantity": str(qty), "date-entered": self.today().isoformat()})
+        self.on_change()
         return {"name": card.name, "set": card.set_name, "number": card.number, "condition": cond.value, "qty": qty,
-                "tcgplayerId": card.tcgplayer_id}
+                "printing": option.label, "tcgplayerId": option.tcgplayer_id}
+
+    @staticmethod
+    def _printing(card: CatalogCard, key: Optional[str]) -> PrintingOption:
+        if not key:
+            return card.printings[0]
+        for o in card.printings:
+            if o.key == key:
+                return o
+        raise ServiceError(400, "this card comes as " + ", ".join(o.label for o in card.printings))
 
     def _console(self, set_name: str) -> str:
-        """The collection's own spelling of this set when it already has cards from it, else 'Pokemon <set>'."""
+        """The set's name in the collection: the alias table's, else the spelling the collection already uses, else 'Pokemon <set>'."""
+        if alnum(set_name) in self.aliases:
+            return f"Pokemon {self.aliases[alnum(set_name)]}"
         for c in sorted({r["console-name"] for r in self.store.rows()}):
             if set_score([set_name], c) == 2:
                 return c
@@ -117,6 +143,7 @@ class CollectionService:
                 r["quantity"] = str(new_qty)
 
         row = self._edit(key, change)
+        self.on_change()
         now = parse_condition(row["notes"]).condition
         return {"key": key, "condition": now.value if now else None, "qty": int(row["quantity"])}
 
@@ -125,6 +152,7 @@ class CollectionService:
             self.store.delete(key)
         except KeyError:
             raise ServiceError(404, STALE) from None
+        self.on_change()
 
     def _edit(self, key: str, change: Callable[[Row], None]) -> Row:
         try:
