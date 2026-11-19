@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler as BaseHTTPRequestHandlerBase, Th
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "scripts"))
 
 import serve  # noqa: E402
-from manage import COLUMNS, CollectionService, CsvCollection, Rebuilder, ServiceError, load_aliases, row_keys  # noqa: E402
+from manage import COLUMNS, CollectionService, CsvCollection, Rebuilder, ServiceError, SetAliases, load_aliases, row_keys  # noqa: E402
 from pricing import (CardCatalog, CardRef, Condition, IdRegistry, JustTcgClient, PricingService, ProviderError, TtlCache,  # noqa: E402
                      strip_wear_words)
 from pricing.collection import price_entries  # noqa: E402
@@ -332,7 +332,7 @@ class Printings(Base):
 class Aliases(Base):
     def setUp(self):
         super().setUp()
-        self.svc.aliases = {"test151": "Test Violet 151"}
+        self.svc.aliases = SetAliases({"Test 151": "Test Violet 151"})
 
     def test_a_listed_set_lands_in_the_collections_own_set_group(self):
         self.svc.add("ts-4", "NM")
@@ -347,6 +347,31 @@ class Aliases(Base):
         self.assertEqual(self.svc._console("151"), "Pokemon Scarlet & Violet 151")
         self.assertEqual(self.svc._console("SWSH Black Star Promos"), "Pokemon Promo")
 
+    def test_typing_the_collections_own_set_name_searches_the_tcgdex_set(self):
+        self.fetch.pages["dexsearch_testmon__test151.json"] = [{"id": "ts-1"}]
+        for typed in ("Test Violet 151", "Pokemon Test Violet 151", "pokémon  test-violet 151", "TEST VIOLET 151"):
+            self.svc.search("Testmon", typed)
+        queried = [u for u in self.fetch.urls if "/cards?" in u]
+        self.assertEqual(len(queried), 4)
+        self.assertTrue(all(u.endswith("set.name=Test+151") for u in queried), queried)
+
+    def test_a_set_name_without_an_alias_is_passed_through_unchanged(self):
+        for typed in ("Test Set", "151", "Test Violet", "Pokemon Test Set"):
+            self.assertEqual(self.svc.aliases.tcgdex_name(typed), typed)
+        self.svc.search("Testmon", "Test Set")
+        self.assertTrue([u for u in self.fetch.urls if "/cards?" in u][0].endswith("set.name=Test+Set"))
+
+    def test_a_collection_name_shared_by_several_tcgdex_sets_is_passed_through(self):
+        shared = SetAliases({"A Black Star Promos": "Promo", "B Black Star Promos": "Promo", "151": "Scarlet & Violet 151"})
+        self.assertEqual(shared.tcgdex_name("Promo"), "Promo")
+        self.assertEqual(shared.tcgdex_name("Pokemon Scarlet & Violet 151"), "151")
+        self.assertEqual(shared.collection_name("b black-star promos"), "Promo")
+
+    def test_the_forward_mapping_is_unchanged(self):
+        self.assertEqual(self.svc._console("Test 151"), "Pokemon Test Violet 151")
+        self.assertEqual(self.svc.aliases.collection_name("test 151"), "Test Violet 151")
+        self.assertIsNone(self.svc.aliases.collection_name("Test Violet 151"))
+
     def test_an_unlisted_set_is_unchanged(self):
         self.assertEqual(self.svc._console("Base Set"), "Pokemon Base Set")
 
@@ -356,7 +381,7 @@ class Aliases(Base):
         table = {k: v for k, v in raw.items() if not k.startswith("_")}
         self.assertGreaterEqual(len(table), 3)
         self.assertTrue(all(isinstance(v, str) and v.strip() and not v.startswith("Pokemon ") for v in table.values()))
-        self.assertEqual(len(load_aliases(os.path.join(os.path.dirname(serve.__file__), "manage", "set_aliases.json"))), len(table))
+        self.assertEqual(len(load_aliases(os.path.join(os.path.dirname(serve.__file__), "manage", "set_aliases.json")).table), len(table))
 
 
 class PricePending(Base):

@@ -55,26 +55,44 @@ def _note(cond: Condition, extra: str) -> str:
     return note
 
 
-def load_aliases(path: str) -> Dict[str, str]:
-    """scripts/manage/set_aliases.json as {normalized TCGdex set name: PriceCharting set name}; keys starting with _ are comments."""
+class SetAliases:
+    """TCGdex set names <-> the names the collection (PriceCharting) uses, from scripts/manage/set_aliases.json.
+    Names compare without case, accents or punctuation, and a typed collection name may keep its leading 'Pokemon '."""
+
+    def __init__(self, table: Dict[str, str]):
+        self.table = {k: v for k, v in table.items() if not k.startswith("_")}   # keys starting with _ are comments
+
+    def collection_name(self, tcgdex_name: str) -> Optional[str]:
+        return next((v for k, v in self.table.items() if alnum(k) == alnum(tcgdex_name)), None)
+
+    def tcgdex_name(self, typed: str) -> str:
+        """The TCGdex set a collection set name stands for, else `typed` unchanged (also when several TCGdex sets share the
+        name, like the promo sets: TCGdex's own 'contains' match then finds them)."""
+        key = alnum(typed)
+        keys = {key, key[len("pokemon"):]} if key.startswith("pokemon") else {key}
+        hits = [k for k, v in self.table.items() if alnum(v) in keys]
+        return hits[0] if len(hits) == 1 else typed
+
+
+def load_aliases(path: str) -> SetAliases:
     with open(path, encoding="utf-8") as f:
-        return {alnum(k): v for k, v in json.load(f).items() if not k.startswith("_")}
+        return SetAliases(json.load(f))
 
 
 class CollectionService:
     def __init__(self, catalog: CardCatalog, open_registry: Callable[[], IdRegistry], store: CsvCollection,
-                 today: Callable[[], date] = date.today, aliases: Optional[Dict[str, str]] = None,
+                 today: Callable[[], date] = date.today, aliases: Optional[SetAliases] = None,
                  on_change: Callable[[], None] = lambda: None):
         # open_registry is called per add, so ids a build saved in the meantime are never overwritten
         self.catalog, self.open_registry, self.store, self.today = catalog, open_registry, store, today
-        self.aliases, self.on_change = aliases or {}, on_change
+        self.aliases, self.on_change = aliases or SetAliases({}), on_change
 
     # ---------------------------------------------------------- search
     def search(self, name: str, set_name: str = "", number: str = "", limit: int = 12, offset: int = 0) -> dict:
         if len((name or "").strip()) < 2:
             raise ServiceError(400, "type at least two letters of a card name")
         try:
-            cards, total = self.catalog.browse(name.strip(), set_name.strip() or None, number.strip() or None, limit, offset)
+            cards, total = self.catalog.browse(name.strip(), self.aliases.tcgdex_name(set_name.strip()) or None, number.strip() or None, limit, offset)
         except CatalogUnavailable as e:
             raise ServiceError(502, f"{e}; try again in a moment") from None
         return {"total": total, "results": [self._view(c) for c in cards]}
@@ -120,8 +138,9 @@ class CollectionService:
 
     def _console(self, set_name: str) -> str:
         """The set's name in the collection: the alias table's, else the spelling the collection already uses, else 'Pokemon <set>'."""
-        if alnum(set_name) in self.aliases:
-            return f"Pokemon {self.aliases[alnum(set_name)]}"
+        alias = self.aliases.collection_name(set_name)
+        if alias:
+            return f"Pokemon {alias}"
         for c in sorted({r["console-name"] for r in self.store.rows()}):
             if set_score([set_name], c) == 2:
                 return c
