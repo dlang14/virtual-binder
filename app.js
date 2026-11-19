@@ -8,7 +8,8 @@
       "<p>This page reads <code>binder-data.js</code>, which is generated from your PriceCharting collection export and isn't included in the repo.</p>" +
       "<ol><li>Export your collection from PriceCharting as a CSV and save it as <code>data/collection.csv</code>.</li>" +
       "<li>Run <code>python3 scripts/build.py</code> (on Windows: <code>py scripts\\build.py</code>). To try it with the example data instead, run <code>python3 scripts/build.py data/sample-collection.csv</code>.</li>" +
-      "<li>Reload this page.</li></ol></div>";
+      "<li>Reload this page.</li></ol>" +
+      "<p>Or run <code>python3 scripts/serve.py</code> and open <code>http://127.0.0.1:8123</code>: it builds the page and lets you add your first cards.</p></div>";
     return;
   }
 
@@ -93,11 +94,11 @@
   $("stats").innerHTML =
     stat("Collection value", money(T.valueCents), PR.priced ?
       PR.priced + " rows priced per condition (TCGplayer)" + (PR.fallback + PR.skipped + PR.none ? " · " + (PR.fallback + PR.skipped) + " on PriceCharting (" + money(PR.fallbackValueCents) + ")" +
-        (PR.none ? " · " + PR.none + " no price" : "") : "") : "PriceCharting prices (no price API key set)") +
+        (PR.none ? " · " + PR.none + " no price" : "") : "") : D.entries.length ? "PriceCharting prices (no price API key set)" : "No cards yet") +
     stat("Cards", T.cards.toLocaleString(), T.rows + " entries · " + setCount + " sets") +
-    '<div class="stat mvp">' + (mvp.images.length ? '<img src="' + esc(mvp.images[0].thumb) + '" alt="">' : "") +
+    (!mvp ? "" : '<div class="stat mvp">' + (mvp.images.length ? '<img src="' + esc(mvp.images[0].thumb) + '" alt="">' : "") +
     '<div><div class="k">Most valuable card</div><div class="v">' + money(mvp.unitCents) + '</div><div class="s">' + esc(mvp.name) +
-    (mvp.variant ? " [" + esc(mvp.variant) + "]" : "") + " #" + esc(mvp.number) + " · " + esc(mvp.set.replace(/^Pokemon /, "")) + "</div></div></div>";
+    (mvp.variant ? " [" + esc(mvp.variant) + "]" : "") + " #" + esc(mvp.number) + " · " + esc(mvp.set.replace(/^Pokemon /, "")) + "</div></div></div>");
   function stat(k, v, s) { return '<div class="stat"><div class="k">' + k + '</div><div class="v">' + v + '</div><div class="s">' + s + "</div></div>"; }
 
   // ---- controls ----
@@ -133,15 +134,17 @@
   var WEAR = { NM: "Near Mint", LP: "Lightly Played", MP: "Moderately Played", HP: "Heavily Played", DMG: "Damaged" };
   // Chips for a card's rows: its wear when it isn't Near Mint, and a label when the price isn't a TCGplayer price.
   function priceChips(rows) {
-    var wear = {}, fb = 0, sk = 0, none = 0, out = [];
+    var wear = {}, fb = 0, sk = 0, none = 0, pend = 0, out = [];
     rows.forEach(function (e) {
       var p = e.price || {};
       if (p.cond && p.cond !== "NM") wear[p.cond] = 1;
-      if (p.state === "fallback") fb++; else if (p.state === "skipped") sk++; else if (p.state === "none") none++;
+      if (p.pending) pend++;
+      if (p.state === "fallback") fb++; else if (p.state === "skipped") sk++; else if (p.state === "none" && !p.pending) none++;
     });
     Object.keys(wear).forEach(function (w) { out.push(chip(esc(w), "wear", "Condition from your notes: " + WEAR[w])); });
     if (fb) out.push(chip("PC price", "pcprice", "PriceCharting price, not adjusted for condition: no TCGplayer price for this exact condition and printing"));
     if (sk) out.push(chip("PC price", "pcprice", "PriceCharting price: non-English cards aren't priced from TCGplayer"));
+    if (pend) out.push(chip("price pending", "pending", "No price yet: the price service couldn't answer (daily or monthly limit, or an outage). A later add or rebuild retries."));
     if (none) out.push(chip("no price", "noprice", "No price available for this card"));
     return out.join("");
   }
@@ -153,6 +156,7 @@
         return pre + money(e.unitCents) + " · " + esc(p.src) + " · " + esc(p.cond) + " " + esc(p.printing || "") + (p.asOf ? " · as of " + esc(p.asOf) : "") +
           (p.stale ? " · <b>price not current</b>" : "");
       }
+      if (p.pending) return pre + "<b>price pending</b> · " + esc(p.reason || "") + " · retried on the next add or rebuild";
       if (p.state === "none") return pre + "<b>no price</b> · " + esc(p.reason || "");
       return pre + money(e.unitCents) + " · <b>PriceCharting</b>, not condition-adjusted · " + esc(p.reason || "");
     });
@@ -226,7 +230,7 @@
           "</div>" + pagesHTML(items) + "</section>";
       });
     }
-    $("binder").innerHTML = html || '<p class="empty-msg">Nothing matches that search.</p>';
+    $("binder").innerHTML = html || '<p class="empty-msg">' + (D.entries.length ? "Nothing matches that search." : "Your collection is empty. Add your first card on the Add cards tab.") + "</p>";
     document.querySelectorAll("[data-missing]").forEach(function (cb) {
       cb.addEventListener("change", function () { state.missing[cb.getAttribute("data-missing")] = cb.checked; render(); });
     });
@@ -249,6 +253,7 @@
       (m.rarity ? "<dt>Rarity</dt><dd>" + esc(m.rarity) + "</dd>" : "") +
       "<dt>Matched</dt><dd>" + esc(m.source) + " " + esc(m.id) + " · " + Math.round(m.confidence * 100) + "% · " + esc(m.method) + "</dd>" +
       (firstSrc(p.images) === "pc" ? '<dt>Image</dt><dd>PriceCharting photo (no card-database image)' + (p.images[0].page ? ' · <a href="' + esc(p.images[0].page) + '" target="_blank" rel="noopener">product page</a>' : "") + "</dd>" : "") + "</dl>";
+    if (window.VB.manage) window.VB.manage.decorate($("zoomInfo"), p.rows);  // add.js: edit / remove, when the local server is up
     $("zoom").hidden = false;
   });
   $("zoom").addEventListener("click", function () { $("zoom").hidden = true; });

@@ -31,6 +31,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from pricing import (CardCatalog, IdRegistry, JustTcgClient, PricingService, TtlCache, PRICE_TTL)  # noqa: E402
 from pricing.collection import price_entries  # noqa: E402
 from pricing.net import get_keys  # noqa: E402
+from manage.store import row_keys  # noqa: E402
 
 # PriceCharting console-name -> where the cards live.
 #   ptcg: Pokemon TCG API set ids (first one is the "main" set used for the missing-card view)
@@ -516,6 +517,9 @@ def parse_args():
                     help="don't call any price API: every card keeps its PriceCharting price from the CSV (labelled as such)")
     ap.add_argument("--price-cache-only", action="store_true",
                     help="price from the local cache only; make no price API calls (cards not in the cache show 'no price')")
+    ap.add_argument("--price-new-only", action="store_true",
+                    help="never refetch a price just because the cache entry is old: only cards with no cached price are requested "
+                         "(what the add-card server uses, so adding a card doesn't refresh the whole collection)")
     ap.add_argument("--max-justtcg-requests", type=int, default=30, metavar="N",
                     help="stop after N JustTCG requests in one build (default 30; the free tier allows 100 a day, 1,000 a month)")
     ap.add_argument("--max-pkmnprices-requests", type=int, default=100, metavar="N",
@@ -585,7 +589,7 @@ def price_rows(entries, pools, args):
                           TtlCache(os.path.join(CACHE, "pricing_search.json"), 7 * 86400), max_pkmn_requests=args.max_pkmnprices_requests)
     provider = None if offline or "JUSTTCG_API_KEY" not in keys else JustTcgClient(keys["JUSTTCG_API_KEY"], args.max_justtcg_requests)
     service = PricingService(catalog, IdRegistry(os.path.join(ROOT, "data", "tcgplayer_ids.json")),
-                             TtlCache(os.path.join(CACHE, "justtcg_prices.json"), PRICE_TTL), provider, offline=offline,
+                             TtlCache(os.path.join(CACHE, "justtcg_prices.json"), 3650 * 86400 if args.price_new_only else PRICE_TTL), provider, offline=offline,
                              disabled_reason="price APIs turned off (--pricecharting-only)" if args.pricecharting_only else None)
 
     def tcgdex_id(e):
@@ -653,8 +657,7 @@ def main():
         return None, 0, ""
 
     entries, unmatched = [], []
-    seen_keys = {}
-    for r in rows:
+    for r, key in zip(rows, row_keys(rows)):
         console = r["console-name"]
         base, variant, num = parse_product(r["product-name"])
         pool = pools.get(console, {})
@@ -722,9 +725,7 @@ def main():
             unmatched.append(e)
         # Stable row key for saved picks: PriceCharting id + row details, plus an occurrence
         # counter for rows that are otherwise identical. Survives re-exports and re-sorting.
-        base_key = "|".join([r["id"], grade, cond, r.get("date-entered", ""), e["folder"]])
-        seen_keys[base_key] = seen_keys.get(base_key, 0) + 1
-        e["key"] = f"{base_key}|{seen_keys[base_key]}"
+        e["key"] = key
         entries.append(e)
 
     sets = []

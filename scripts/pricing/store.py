@@ -92,5 +92,9 @@ class IdRegistry:
 
     def save(self) -> None:
         if self._dirty:
-            _write(self.path, {"version": 1, "cards": self.cards, "misses": self.misses})
-            self._dirty = False
+            # Merge with the file first: an id the add-card server (or you, by hand) saved since this registry was loaded stays.
+            raw = _read(self.path)
+            cards = {**raw.get("cards", {}), **self.cards}
+            misses = {k: v for k, v in {**raw.get("misses", {}), **self.misses}.items() if k not in cards}
+            _write(self.path, {"version": 1, "cards": cards, "misses": misses})
+            self.cards, self.misses, self._dirty = cards, misses, False

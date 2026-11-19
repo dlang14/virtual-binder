@@ -1,0 +1,17 @@
+{
+  "_about": "TCGdex set name -> the set name your PriceCharting collection uses (without the 'Pokemon ' prefix). A card added from a TCGdex set listed here lands in that existing set group instead of a new one. Letter case, accents and punctuation don't matter. Add a line when a new card shows up under a duplicate set; the right-hand name must be one scripts/build.py can resolve to a TCGdex set (its SET_MAP, or the same name as the TCGdex set).",
+  "151": "Scarlet & Violet 151",
+  "Pokémon GO": "Go",
+  "Miscellaneous Promos": "Promo",
+  "Wizards Black Star Promos": "Promo",
+  "W Promotional": "Promo",
+  "Nintendo Black Star Promos": "Promo",
+  "DP Black Star Promos": "Promo",
+  "HGSS Black Star Promos": "Promo",
+  "BW Black Star Promos": "Promo",
+  "XY Black Star Promos": "Promo",
+  "SM Black Star Promos": "Promo",
+  "SWSH Black Star Promos": "Promo",
+  "SVP Black Star Promos": "Promo",
+  "MEP Black Star Promos": "Promo"
+}

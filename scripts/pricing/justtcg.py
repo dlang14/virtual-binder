@@ -11,10 +11,14 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Iterable, List, Optional, Tuple
 
 from .domain import Condition, alnum
-from .net import HttpResult, request_json
+from .net import HttpResult, RateLimiter, request_json
 
 URL = "https://api.justtcg.com/v1/cards"
 BATCH = 20
+FREE_PER_MINUTE = 9        # the free plan allows 10 a minute; one spare, until the plan's own limit is known from _metadata
+RATE_TRIES = 3             # attempts at one request while the per-minute limit says 429
+WINDOW = 60.0
+DAILY, MONTHLY = "DAILY_LIMIT_EXCEEDED", "REQUEST_LIMIT_EXCEEDED"   # 429 codes that won't clear within a minute
 SOURCE = "JustTCG (TCGplayer market)"
 
 _COND_KEYS = {"nm": Condition.NM, "nearmint": Condition.NM, "lp": Condition.LP, "lightlyplayed": Condition.LP,
@@ -53,7 +57,12 @@ class ProductPrices:
 
 
 class ProviderError(Exception):
-    """The provider couldn't answer (quota, outage, bad key). Never cached."""
+    """The provider couldn't answer (quota, outage, bad key). Never cached. pending: it may answer later (quota, outage),
+    as opposed to a key or setup problem."""
+
+    def __init__(self, message: str, pending: bool = False):
+        super().__init__(message)
+        self.pending = pending
 
 
 def condition_of(label: Optional[str]) -> Optional[Condition]:
@@ -74,38 +83,86 @@ def chunk_unique_ids(pairs: List[Tuple[str, Condition]], size: int = BATCH) -> L
     return chunks
 
 
+def _headroom(per_minute: int) -> int:
+    """How many requests a minute to use of a plan's limit: all but one on the small plans, 90% on the big ones."""
+    return max(1, min(per_minute - 1, int(per_minute * 0.9)))
+
+
+def _retry_after(res: HttpResult) -> Optional[float]:
+    for k, v in (res.headers or {}).items():
+        if k.lower() == "retry-after":
+            try:
+                return min(max(float(v), 1.0), WINDOW + 5)
+            except ValueError:
+                return None
+    return None
+
+
+def _code(res: HttpResult) -> Optional[str]:
+    return res.data.get("code") if isinstance(res.data, dict) else None
+
+
 class JustTcgClient:
+    """Sends at most `per_minute` requests a minute (the plan's own limit once the first answer reports it), waits out a
+    per-minute 429 and tries again, and stops sending for good once the daily or monthly quota is spent."""
+
     def __init__(self, api_key: str, max_requests: int = 30, request: Callable[..., HttpResult] = request_json,
-                 pace: float = 0.5, sleep: Callable[[float], None] = time.sleep):
+                 pace: float = 0.5, sleep: Callable[[float], None] = time.sleep, per_minute: int = FREE_PER_MINUTE,
+                 clock: Callable[[], float] = time.monotonic):
         self._key = api_key
         self.max_requests = max_requests
         self._request, self._pace, self._sleep = request, pace, sleep
-        self.requests_made = 0
-        self.quota: Dict[str, object] = {}   # last _metadata the API sent (plan, daily/monthly remaining)
+        self._limiter = RateLimiter(per_minute, WINDOW, clock, sleep)
+        self.requests_made = 0           # every request sent, including ones answered 429
+        self.quota: Dict[str, object] = {}   # last _metadata the API sent (plan, per-minute, daily and monthly counts)
+        self._spent: Optional[str] = None    # why nothing more is sent, once the daily or monthly quota is gone
 
     def fetch(self, pairs: Iterable[Tuple[str, Condition]]) -> Dict[Tuple[str, Condition], object]:
         """{(product id, condition): ProductPrices | ProviderError}. Spends one request per batch of up to 20."""
         out: Dict[Tuple[str, Condition], object] = {}
         for chunk in chunk_unique_ids(list(dict.fromkeys(pairs))):
-            if self.requests_made >= self.max_requests:
+            if self._spent or self.requests_made >= self.max_requests:
                 for p in chunk:
-                    out[p] = ProviderError(f"request budget of {self.max_requests} reached for this build")
+                    out[p] = ProviderError(self._spent or f"request budget of {self.max_requests} reached for this build", pending=True)
                 continue
             if self.requests_made:
                 self._sleep(self._pace)
-            self.requests_made += 1
-            res = self._request(URL, headers={"x-api-key": self._key}, body=[{"tcgplayerId": str(p), "condition": c.value} for p, c in chunk])
+            res = self._send([{"tcgplayerId": str(p), "condition": c.value} for p, c in chunk])
             if res.status != 200 or not isinstance(res.data, dict):
-                msg = {401: "API key rejected (HTTP 401)", 403: "API key rejected (HTTP 403)",
-                       429: "rate or daily quota exhausted (HTTP 429)", 0: "network error"}.get(res.status, f"HTTP {res.status}")
+                err = self._error(res)
                 for p in chunk:
-                    out[p] = ProviderError(f"JustTCG: {msg}")
+                    out[p] = err
                 continue
             self.quota = dict(res.data.get("_metadata") or {})
+            rate = self.quota.get("apiRateLimit")
+            if isinstance(rate, int) and rate > 0:
+                self._limiter.limit = _headroom(rate)
             by_id = {str(c.get("tcgplayerId")): c for c in res.data.get("data") or [] if isinstance(c, dict)}
             for pid, cond in chunk:
                 out[(pid, cond)] = parse_product(by_id.get(str(pid)), cond)
         return out
+
+    def _send(self, body: list) -> HttpResult:
+        for attempt in range(1, RATE_TRIES + 1):
+            self._limiter.wait()
+            self.requests_made += 1
+            res = self._request(URL, headers={"x-api-key": self._key}, body=body, no_retry_429=(DAILY, MONTHLY, "RATE_LIMIT_EXCEEDED"))
+            if res.status != 429 or _code(res) in (DAILY, MONTHLY) or attempt == RATE_TRIES:
+                return res
+            self._sleep(_retry_after(res) or WINDOW)   # the minute window: Retry-After if sent, else a whole minute
+        return res
+
+    def _error(self, res: HttpResult) -> ProviderError:
+        if res.status == 429:
+            code = _code(res)
+            if code == DAILY:
+                self._spent = "JustTCG daily request limit reached (resets at 00:00 UTC)"
+            elif code == MONTHLY:
+                self._spent = "JustTCG monthly request limit reached (resets on your billing day)"
+            return ProviderError(self._spent or f"JustTCG per-minute rate limit ({self._limiter.limit}/min used) still hit after "
+                                 f"{RATE_TRIES} tries", pending=True)
+        msg = {401: "API key rejected (HTTP 401)", 403: "API key rejected (HTTP 403)", 0: "network error"}.get(res.status, f"HTTP {res.status}")
+        return ProviderError(f"JustTCG: {msg}", pending=res.status == 0 or res.status >= 500)
 
 
 def parse_product(card: Optional[dict], cond: Condition) -> ProductPrices:

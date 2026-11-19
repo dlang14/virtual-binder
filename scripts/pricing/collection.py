@@ -8,6 +8,9 @@ Each row (a dict built by scripts/build.py) gets an entry["price"] block saying 
     state "skipped"   non-English card: TCGplayer is English-only; PriceCharting's price is shown, labelled
     state "none"      no price at all (and no PriceCharting price to fall back on)
 
+Either of those two also carries pending=True when JustTCG couldn't answer right now (daily or monthly limit, outage), so
+the page can say "price pending" instead of "no price"; a later build that gets an answer clears it.
+
 unitCents / valueCents hold whichever value applies; pcUnitCents / pcValueCents always keep the CSV's PriceCharting
 numbers (the row total divided by quantity) so before/after can be compared and a fallback is never mistaken for a
 TCGplayer price.
@@ -42,6 +45,7 @@ class Coverage:
     fallback: int = 0
     skipped: int = 0
     none: int = 0
+    pending: int = 0                                       # English rows with no price only because JustTCG couldn't answer now
     english_rows: int = 0
     missing: List[dict] = field(default_factory=list)      # English rows without a TCGplayer price: {label, cond, reason, state}
     skipped_rows: List[dict] = field(default_factory=list)
@@ -56,7 +60,7 @@ class Coverage:
         return {"rows": self.rows, "englishRows": self.english_rows, "priced": self.priced, "fallback": self.fallback,
                 "skipped": self.skipped, "none": self.none, "pcValueCents": self.pc_value_cents,
                 "valueCents": self.value_cents, "pricedValueCents": self.priced_value_cents,
-                "fallbackValueCents": self.fallback_value_cents, "source": "JustTCG (TCGplayer market), per condition"}
+                "fallbackValueCents": self.fallback_value_cents, "pending": self.pending, "source": "JustTCG (TCGplayer market), per condition"}
 
     def format(self) -> str:
         money = lambda c: f"${c / 100:,.2f}"
@@ -68,6 +72,8 @@ class Coverage:
         if self.missing:
             lines.append("  Missing a TCGplayer price (shown with a labelled PriceCharting price where the CSV has one):")
             lines += [f"    - {m['label']} [{m['cond']}]: {m['reason']}" for m in self.missing]
+        if self.pending:
+            lines.append(f"  {self.pending} row(s) wait on a price (JustTCG limit or outage); the next build or add retries them")
         if self.skipped_rows:
             lines.append("  Skipped (non-English; TCGplayer prices English cards only):")
             lines += [f"    - {m['label']}" for m in self.skipped_rows]
@@ -120,6 +126,7 @@ def _apply(e: dict, r: PriceResult) -> None:
         e["valueCents"] = r.cents * e["qty"]
     else:
         p["reason"] = r.reason
+        p["pending"] = r.pending
 
 
 def _finish(e: dict, cov: Coverage) -> None:
@@ -143,6 +150,7 @@ def _finish(e: dict, cov: Coverage) -> None:
         cov.skipped += 1
         cov.skipped_rows.append({"label": card_label(e)})
         return
+    cov.pending += bool(p.get("pending"))
     cov.fallback += p["state"] == "fallback"
     cov.none += p["state"] == "none"
     cov.missing.append({"label": card_label(e), "cond": p.get("cond") or "?", "reason": p.get("reason", ""), "state": p["state"]})
